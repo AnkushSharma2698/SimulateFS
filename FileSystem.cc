@@ -10,6 +10,9 @@
 #include "FileSystem.h"
 
 using namespace std;
+
+Super_block sb; 
+
 void tokenize(string str, vector<string>&words) {
     stringstream stream(str);
     string tok;
@@ -54,12 +57,12 @@ int main(int argc, char *argv[]) {
 void fs_mount(const char *new_disk_name) {
     fstream disk;
     // Check if a disk with the given name exists in the cwd
-    cout << "Disk: " << new_disk_name << endl;
     disk.open(new_disk_name);
     if (!disk) {
-        cerr << "File does not exist in the cwd" << endl;
+        cerr << "Error: Cannot find disk " << new_disk_name << endl;
         return;
-    }
+    } 
+    cout << "Found disk: will begin mounting" << endl;   
     disk.close();
     // Load the superblock of the file system <-- Read super block into mem
     // Check file system Consistency: --> DO NOT MOUNT, if Consistency check fails
