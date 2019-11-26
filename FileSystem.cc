@@ -9,6 +9,8 @@
 // Headers to be included
 #include "FileSystem.h"
 
+#define FREE_SPACE_LIST 16
+
 using namespace std;
 
 Super_block sb; 
@@ -58,11 +60,20 @@ void fs_mount(const char *new_disk_name) {
     fstream disk;
     // Check if a disk with the given name exists in the cwd
     disk.open(new_disk_name);
+    
     if (!disk) {
         cerr << "Error: Cannot find disk " << new_disk_name << endl;
         return;
-    } 
-    cout << "Found disk: will begin mounting" << endl;   
+    }
+
+    Super_block superblock;
+    
+
+    for (char i = 0; i < FREE_SPACE_LIST ; i++) {
+        cout << "Reading the free space list" << endl;
+        // disk.read();
+    }
+	cout << "Disk is consistent" << endl;
     disk.close();
     // Load the superblock of the file system <-- Read super block into mem
     // Check file system Consistency: --> DO NOT MOUNT, if Consistency check fails
@@ -78,6 +89,8 @@ void fs_mount(const char *new_disk_name) {
     // If all is well set cwd to root of new file disk
     // NOTE: DO NOT FLUSH BUFFER WHEN MOUNTING A FS
 }
+
+
 void fs_create(char name[5], int size) {
     // Create a file on the ffd
     // Make sure to check that there is an available disk right now
