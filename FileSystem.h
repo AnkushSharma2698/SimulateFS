@@ -1,5 +1,15 @@
+#define cout(n) cout << Line: __LINE__ << " "<< (n) << endl;
+#define init_map(map, size) { \
+	for (int i=0; i<(size);i++ ) { \
+		(map)[i] = 0; \
+	} \
+}
 #include <stdio.h>
 #include <stdint.h>
+#include <iostream>
+#include <map>
+
+using namespace std;
 
 typedef struct {
 	char name[5];        // Name of the file or directory (First 5 bytes)
@@ -23,3 +33,6 @@ void fs_ls(void);
 void fs_resize(char name[5], int new_size);
 void fs_defrag(void);
 void fs_cd(char name[5]);
+
+// Helper methods
+void check_map_vs_inodes(Inode *inode , map<int, int> block_map);

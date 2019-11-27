@@ -5,15 +5,17 @@
 #include <string>
 #include <vector>
 #include <fstream>
-
+#include<map>
+#include <iterator>
 // Headers to be included
 #include "FileSystem.h"
 
 #define FREE_SPACE_LIST 16
+#define INODE_NUM 126
 
 using namespace std;
 
-Super_block sb; 
+Super_block super_block; 
 
 void tokenize(string str, vector<string>&words) {
     stringstream stream(str);
@@ -66,15 +68,44 @@ void fs_mount(const char *new_disk_name) {
         return;
     }
 
-    Super_block superblock;
-    
+	disk.read(super_block.free_block_list, FREE_SPACE_LIST);// Read the FB list into memory
+	// Read the rest of the inodes into memory into the inode list
+	for (uint8_t i = 0; i < INODE_NUM; i++) {
+		disk.read(super_block.inode[i].name, 5); // Read the name into mem
+		disk.read((char*)&super_block.inode[i].used_size, 1);
+		disk.read((char*)&super_block.inode[i].start_block, 1);
+		disk.read((char*)&super_block.inode[i].dir_parent, 1);
+	}
+	
+	// Perform consistency checks
+	// Consistency Check 1: Blocks that are marked free in FSL cannot be allocated to any file
+	// Block in use, must be allocated to exactly one file
+	// Iterate over all inodes and store the start_block of each inode
+	
+	map<int, int> block_map;
+	// Initialize a counter for the used blocks in mem
+	init_map(block_map, 128);
+	// Check used_block
+	check_map_vs_inodes(super_block.inode, block_map);
 
-    for (char i = 0; i < FREE_SPACE_LIST ; i++) {
-        cout << "Reading the free space list" << endl;
-        // disk.read();
-    }
-	cout << "Disk is consistent" << endl;
-    disk.close();
+	int count = 0;
+	for (unsigned char  i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
+		uint8_t mask = 1 << 7;
+		while(mask) {
+			if (super_block.free_block_list[i] & mask) {
+				// Block is apparently being used
+				
+			} else {
+				// Block is apparently free
+								
+			}
+			count++;
+			mask >>= 1;
+		}
+	}
+
+
+	disk.close();
     // Load the superblock of the file system <-- Read super block into mem
     // Check file system Consistency: --> DO NOT MOUNT, if Consistency check fails
     // 1.Free blocks in free space lists must not be allocated to anythimg
@@ -88,6 +119,13 @@ void fs_mount(const char *new_disk_name) {
     // If pass, unmount the other ffd
     // If all is well set cwd to root of new file disk
     // NOTE: DO NOT FLUSH BUFFER WHEN MOUNTING A FS
+}
+
+// This method is used as part of consistency check 1
+void check_map_vs_inodes(Inode * inode, map<int, int> block_map, int size ) {
+	for (Inode *p; p!= end(inode);p++) {
+		cout << *p->name << endl;
+	}
 }
 
 
