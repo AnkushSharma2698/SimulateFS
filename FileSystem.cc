@@ -111,21 +111,23 @@ void fs_mount(const char *new_disk_name) {
 	// Check used_block
 	check_map_vs_inodes(block_map);
     cout << "Done performing the check" << endl;
-	// int count = 0;
-	// for (unsigned char  i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
-	// 	uint8_t mask = 1 << 7;
-	// 	while(mask) {
-	// 		if (super_block.free_block_list[i] & mask) {
-	// 			// Block is apparently being used
+	int count = 0;
+	for (unsigned char i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
+		uint8_t mask = 1 << 7;
+		while(mask) {
+			if (super_block.free_block_list[i] & mask) {
+				// Block is apparently being used
 				
-	// 		} else {
-	// 			// Block is apparently free
-								
-	// 		}
-	// 		count++;
-	// 		mask >>= 1;
-	// 	}
-	// }
+			} else {
+				// Block is apparently free
+				if (block_map[i] != 0) {
+                    cout << "Disk is inconsistent" << endl;
+                }		
+			}
+			count++;
+			mask >>= 1;
+		}
+	}
 
 
 	disk.close();
