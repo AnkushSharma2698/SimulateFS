@@ -6,16 +6,26 @@
 #include <vector>
 #include <fstream>
 #include<map>
+#include <cmath>
 #include <iterator>
 // Headers to be included
 #include "FileSystem.h"
 
 #define FREE_SPACE_LIST 16
 #define INODE_NUM 126
+#define BYTE_SIZE 8
 
 using namespace std;
 
 Super_block super_block; 
+
+void printBits(uint8_t byte) {
+   int i;
+    for (i = 0; i < 8; i++) {
+        printf("%d", !!((byte << i) & 0x80));
+    }
+    printf("\n");
+}
 
 void tokenize(string str, vector<string>&words) {
     stringstream stream(str);
@@ -31,6 +41,19 @@ void printVector(vector<string> &words) {
     cout << endl;
 }
 
+int convertByteToDecimal(uint8_t n, int iterations){
+    int sum = 0;
+    int decimal = 1;
+    uint8_t mask = (1 << 1) - 1; // mask  00000001
+    for (int i = 0; i < iterations; i++ ) {
+        if ((n & mask)) {
+            sum +=decimal;
+        }
+        mask <<= 1;
+        decimal *=2;
+    }
+    return sum;
+}
 
 
 int main(int argc, char *argv[]) {
@@ -86,23 +109,23 @@ void fs_mount(const char *new_disk_name) {
 	// Initialize a counter for the used blocks in mem
 	init_map(block_map, 128);
 	// Check used_block
-	check_map_vs_inodes(super_block.inode, block_map);
-
-	int count = 0;
-	for (unsigned char  i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
-		uint8_t mask = 1 << 7;
-		while(mask) {
-			if (super_block.free_block_list[i] & mask) {
-				// Block is apparently being used
+	check_map_vs_inodes(block_map);
+    cout << "Done performing the check" << endl;
+	// int count = 0;
+	// for (unsigned char  i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
+	// 	uint8_t mask = 1 << 7;
+	// 	while(mask) {
+	// 		if (super_block.free_block_list[i] & mask) {
+	// 			// Block is apparently being used
 				
-			} else {
-				// Block is apparently free
+	// 		} else {
+	// 			// Block is apparently free
 								
-			}
-			count++;
-			mask >>= 1;
-		}
-	}
+	// 		}
+	// 		count++;
+	// 		mask >>= 1;
+	// 	}
+	// }
 
 
 	disk.close();
@@ -122,9 +145,23 @@ void fs_mount(const char *new_disk_name) {
 }
 
 // This method is used as part of consistency check 1
-void check_map_vs_inodes(Inode * inode, map<int, int> block_map, int size ) {
-	for (Inode *p; p!= end(inode);p++) {
-		cout << *p->name << endl;
+void check_map_vs_inodes(map<int, int> block_map) {
+    uint8_t base_mask = 1 << 7;
+    for (int i = 0; i < INODE_NUM; i++) {
+        // Check if the inode is in use
+        if (super_block.inode[i].used_size & base_mask) {
+            printBits(super_block.inode[i].used_size);
+            // Determine the start block for this
+            int start_block_idx = convertByteToDecimal(super_block.inode[i].start_block, BYTE_SIZE);
+            int blocks_covered = convertByteToDecimal(super_block.inode[i].used_size, BYTE_SIZE - 1);
+            // Do i even need to look at dir parent??
+            for (i = start_block_idx; i < start_block_idx  + blocks_covered; i++) {
+                int val = block_map[i];
+                block_map[i] = val + 1;
+            }
+            // Go from the start block to the end and update the hash map
+            cout << start_block_idx << blocks_covered<<  endl;
+        }
 	}
 }
 
