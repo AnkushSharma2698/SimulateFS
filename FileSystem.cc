@@ -17,7 +17,7 @@
 
 using namespace std;
 
-Super_block super_block; 
+Super_block super_block;
 
 void printBits(uint8_t byte) {
    int i;
@@ -92,7 +92,7 @@ void fs_mount(const char *new_disk_name) {
     }
 
 	disk.read(super_block.free_block_list, FREE_SPACE_LIST);// Read the FB list into memory
-	// Read the rest of the inodes into memory into the inode list
+    // Read the rest of the inodes into memory into the inode list
 	for (uint8_t i = 0; i < INODE_NUM; i++) {
 		disk.read(super_block.inode[i].name, 5); // Read the name into mem
 		disk.read((char*)&super_block.inode[i].used_size, 1);
@@ -104,30 +104,41 @@ void fs_mount(const char *new_disk_name) {
 	// Consistency Check 1: Blocks that are marked free in FSL cannot be allocated to any file
 	// Block in use, must be allocated to exactly one file
 	// Iterate over all inodes and store the start_block of each inode
-	
-	map<int, int> block_map;
+
 	// Initialize a counter for the used blocks in mem
-	init_map(block_map, 128);
-	// Check used_block
-	check_map_vs_inodes(block_map);
-    cout << "Done performing the check" << endl;
+    // Check 1 setup
+    map<int, bool> used_block_map;
+    //Consistency check 1
+	check_map_vs_inodes(used_block_map);
 	int count = 0;
-	for (unsigned char i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
+	for (unsigned int i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
 		uint8_t mask = 1 << 7;
 		while(mask) {
+            if (i == 0 && (mask == 128))  {
+                count++;
+			    mask >>= 1;
+                continue;
+            }
 			if (super_block.free_block_list[i] & mask) {
 				// Block is apparently being used
-				
+				if (!used_block_map[count]) {
+                    // cout << "BLOCK:" << count <<endl;
+                    cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "1" << ")" << endl;
+                    return;
+                }
 			} else {
 				// Block is apparently free
-				if (block_map[i] != 0) {
-                    cout << "Disk is inconsistent" << endl;
+				if (used_block_map[count]) { // Check if the block that we are looking at is actually frees
+                    // cout << "BLOCK:" << count << endl;
+                    cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "1" << ")" << endl;
+                    return;
                 }		
 			}
 			count++;
 			mask >>= 1;
 		}
 	}
+    cout << "Passed consistency check 1" << endl;
 
 
 	disk.close();
@@ -147,22 +158,21 @@ void fs_mount(const char *new_disk_name) {
 }
 
 // This method is used as part of consistency check 1
-void check_map_vs_inodes(map<int, int> block_map) {
+void check_map_vs_inodes(map<int, bool> &block_map) {
     uint8_t base_mask = 1 << 7;
-    for (int i = 0; i < INODE_NUM; i++) {
+    for (int i = 0; i < INODE_NUM; i++) { // Iterate all of the inodes
         // Check if the inode is in use
         if (super_block.inode[i].used_size & base_mask) {
-            printBits(super_block.inode[i].used_size);
-            // Determine the start block for this
-            int start_block_idx = convertByteToDecimal(super_block.inode[i].start_block, BYTE_SIZE);
-            int blocks_covered = convertByteToDecimal(super_block.inode[i].used_size, BYTE_SIZE - 1);
-            // Do i even need to look at dir parent??
-            for (i = start_block_idx; i < start_block_idx  + blocks_covered; i++) {
-                int val = block_map[i];
-                block_map[i] = val + 1;
+            // Determine if it is a file or a directory
+            if (super_block.inode[i].dir_parent < 128) {
+                // Determine the start block for this
+                int start_block_idx = convertByteToDecimal(super_block.inode[i].start_block, BYTE_SIZE);
+                int blocks_covered = convertByteToDecimal(super_block.inode[i].used_size, BYTE_SIZE - 1);
+                // Do i even need to look at dir parent??
+                for (i = start_block_idx; i < start_block_idx  + blocks_covered; i++) {
+                    block_map[i] = true;
+                }
             }
-            // Go from the start block to the end and update the hash map
-            cout << start_block_idx << blocks_covered<<  endl;
         }
 	}
 }
