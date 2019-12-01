@@ -3,11 +3,13 @@
 #include <sys/stat.h>
 #include <sstream>
 #include <string>
+#include <string.h>
 #include <vector>
 #include <fstream>
 #include<map>
 #include <cmath>
 #include <iterator>
+#include <set>
 // Headers to be included
 #include "FileSystem.h"
 
@@ -21,6 +23,7 @@ using namespace std;
 // GLOBAL VARIABLES
 Super_block super_block;
 fstream disk;
+string m_disk_name; // Refers to the name of the currently mounted disk
 
 
 // HELPERS
@@ -42,6 +45,12 @@ void print_map(map<int,int> &my_map) {
              << '\t' << itr->second << '\n'; 
     } 
     cout << endl; 
+}
+void print_str_map(map<int, set<string>> directory_map) {
+        // REMOVE THIS TEST PRINT CODE
+    for (auto it = directory_map.begin(); it != directory_map.end();++it) {
+        cout <<"Key: " << it->first << endl;
+    }
 }
 
 void tokenize(string str, vector<string>&words) {
@@ -127,7 +136,7 @@ void fs_mount(const char *new_disk_name) {
 	for (unsigned int i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
 		uint8_t mask = 1 << 7;
 		while(mask) {
-            if (i == 0 && (mask == 128))  {
+            if (i == 0 && (mask == 128))  { // Checking if we are looking at the super block
                 count++;
 			    mask >>= 1;
                 continue;
@@ -155,16 +164,85 @@ void fs_mount(const char *new_disk_name) {
 	}
     cout << "Passed consistency check 1" << endl;
 
-	// Consistency check 2
+    // ===================Consistency check 2 ====================//
     // 2. name of every file/directory must be unique within a directory
-    
+    map<int, set<string>> directory_map;
 
+    // Iterate each inode to find out which one is directory
+    for (int i = 0; i < INODE_NUM; i++) {
+        if (!(super_block.inode[i].dir_parent < 128)) {
+            // The current index is a directory
+            directory_map[i];
+        }
+    }
+
+    // Go through the inodes now and add the item to the correct parent directory
+    uint8_t idx_mask = 127;
+    for (int i = 0; i< INODE_NUM; i++) {
+        // Check if the inode we are looking at is in use
+        if (super_block.inode[i].used_size & (1 << 7)) {
+            int idx = super_block.inode[i].dir_parent & idx_mask;
+            string name(super_block.inode[i].name);
+            if (!directory_map[idx].insert(name).second) {
+                // There is a duplicate inserted into a set
+                cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "2" << ")" << endl;
+                return;
+            }
+        }
+    }
+    cout << "Passed consistency check 2" << endl;
+
+    //============Consistency Check 3 ===============//
+    // 3. Free inode must have all bits = 0, else the "name" at least must have one non-zero bit
+    for (int i = 0; i < INODE_NUM; i++) {
+        if (super_block.inode[i].used_size & 1<< 7) {
+            // Check if the name has at least one bit in it that is not 0
+            if (strcmp(super_block.inode[i].name, "\0\0\0\0\0") ==0) {
+                cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "3" << ")" << endl;
+                return;
+            }
+        } else {
+            // All every bit in this inode must be 0
+            if (!strcmp(super_block.inode[i].name, "\0\0\0\0\0") == 0) {
+                cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "3" << ")" << endl;
+                return;
+            }
+            if (!super_block.inode[i].used_size == 0 || !super_block.inode[i].start_block == 0 || !super_block.inode[i].dir_parent == 0) {
+                cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "3" << ")" << endl;
+                return;
+            }
+
+        }
+    }
+    cout << "Passed consistency check 3" << endl;
+
+    // =================Consistency check 4 ===============//
+    // 4. The startblock of every inode that is a file must be between 1-127 inclusive
+    for (int i = 0; i < INODE_NUM; i++) {
+        if (super_block.inode[i].used_size & 1<<7) { // Node is in use
+            // Check if the inode is a file
+            if (super_block.inode[i].dir_parent < 128) {
+                if (!(super_block.inode[i].start_block > 0 && super_block.inode[i].start_block < 128)) {
+                    cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "4" << ")" << endl;
+                    return;
+                }
+            }
+
+        }
+    }
+    cout << "Passed consistency check 4" << endl;
+    
+    // ==============Consistency Check 5==================//
+    // 5. size and start block of inode that is directory must be 0
+
+
+    // At the end, if the disk is mounted we shall store the name of the new disk as the main one
+    // if (m_disk_name.empty()) {
+    //     cout << "Error: No file system is mounted" << endl;
+    // }
 	disk.close();
     // Load the superblock of the file system <-- Read super block into mem
     // Check file system Consistency: --> DO NOT MOUNT, if Consistency check fails
-    // 3. Free inode must have all bits = 0, else the "name" at least must have one non-zero bit
-    // 4. The startblock of every inode that is a file must be between 1-127 inclusive
-    // 5. size and start block of inode that is directory must be 0
     // 6. Parent can never be 126. If parent inode between 1-125 inclusive, parent inode must be in use and marked as a directory
 
     // If pass, unmount the other ffd
@@ -172,7 +250,7 @@ void fs_mount(const char *new_disk_name) {
     // NOTE: DO NOT FLUSH BUFFER WHEN MOUNTING A FS
 }
 
-// This method is used as part of consistency check 1
+// CONSISTENCY CHECK 1 HELPER
 void check_map_vs_inodes(map<int, int> &block_map) {
     uint8_t base_mask = 1 << 7;
     for (int i = 0; i < INODE_NUM; i++) { // Iterate all of the inodes
@@ -180,6 +258,7 @@ void check_map_vs_inodes(map<int, int> &block_map) {
         if (super_block.inode[i].used_size & base_mask) {
             // Determine if it is a file or a directory
             if (super_block.inode[i].dir_parent < 128) {
+                // Current inode is a file
                 // Determine the start block for this
                 int start_block_idx = convertByteToDecimal(super_block.inode[i].start_block, BYTE_SIZE);
                 int blocks_covered = convertByteToDecimal(super_block.inode[i].used_size, BYTE_SIZE - 1);
