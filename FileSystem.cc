@@ -27,7 +27,6 @@ string m_disk_name; // Refers to the name of the currently mounted disk
 
 
 // HELPERS
-
 void printBits(uint8_t byte) {
    int i;
     for (i = 0; i < 8; i++) {
@@ -97,6 +96,13 @@ int main(int argc, char *argv[]) {
                     cout << "Error: Must provide name to mount disk" << endl;
                 }
                 break;
+            case 'C':
+                if (!m_disk_name.empty()) {
+
+                } else {
+                    cout << "Error: no file system is mounted" << endl;
+                }
+                break;
             default:
                 cout << "Error: Command Not Found" << endl;
         }
@@ -144,17 +150,17 @@ void fs_mount(const char *new_disk_name) {
 			if (super_block.free_block_list[i] & mask) {
 				// Block is apparently being used
 				if (!used_block_map[count]) {
-                    cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "1" << ")" << endl;
+                    error_repr(1, new_disk_name);
                     return;
                 } else if (used_block_map[count] > 1) {
-                    cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "1" << ")" << endl;
+                     error_repr(1, new_disk_name);
                     return;
                 }
 			} else {
 				// Block is apparently free
 				if (used_block_map[count]) { // Check if the block that we are looking at is actually frees
                     // cout << "BLOCK:" << count << endl;
-                    cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "1" << ")" << endl;
+                    error_repr(1, new_disk_name);
                     return;
                 }		
 			}
@@ -162,11 +168,11 @@ void fs_mount(const char *new_disk_name) {
 			mask >>= 1;
 		}
 	}
-    cout << "Passed consistency check 1" << endl;
 
     // ===================Consistency check 2 ====================//
     // 2. name of every file/directory must be unique within a directory
     map<int, set<string>> directory_map;
+    directory_map[127]; // Root directory index
 
     // Iterate each inode to find out which one is directory
     for (int i = 0; i < INODE_NUM; i++) {
@@ -185,12 +191,11 @@ void fs_mount(const char *new_disk_name) {
             string name(super_block.inode[i].name);
             if (!directory_map[idx].insert(name).second) {
                 // There is a duplicate inserted into a set
-                cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "2" << ")" << endl;
+                error_repr(2, new_disk_name);
                 return;
             }
         }
     }
-    cout << "Passed consistency check 2" << endl;
 
     //============Consistency Check 3 ===============//
     // 3. Free inode must have all bits = 0, else the "name" at least must have one non-zero bit
@@ -198,23 +203,22 @@ void fs_mount(const char *new_disk_name) {
         if (super_block.inode[i].used_size & 1<< 7) {
             // Check if the name has at least one bit in it that is not 0
             if (strcmp(super_block.inode[i].name, "\0\0\0\0\0") ==0) {
-                cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "3" << ")" << endl;
+                error_repr(3, new_disk_name);
                 return;
             }
         } else {
             // All every bit in this inode must be 0
             if (!strcmp(super_block.inode[i].name, "\0\0\0\0\0") == 0) {
-                cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "3" << ")" << endl;
+                error_repr(3, new_disk_name);
                 return;
             }
             if (!super_block.inode[i].used_size == 0 || !super_block.inode[i].start_block == 0 || !super_block.inode[i].dir_parent == 0) {
-                cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "3" << ")" << endl;
+                error_repr(3, new_disk_name);
                 return;
             }
 
         }
     }
-    cout << "Passed consistency check 3" << endl;
 
     // =================Consistency check 4 ===============//
     // 4. The startblock of every inode that is a file must be between 1-127 inclusive
@@ -223,31 +227,58 @@ void fs_mount(const char *new_disk_name) {
             // Check if the inode is a file
             if (super_block.inode[i].dir_parent < 128) {
                 if (!(super_block.inode[i].start_block > 0 && super_block.inode[i].start_block < 128)) {
-                    cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "4" << ")" << endl;
+                    error_repr(4, new_disk_name);
                     return;
                 }
             }
 
         }
     }
-    cout << "Passed consistency check 4" << endl;
     
     // ==============Consistency Check 5==================//
     // 5. size and start block of inode that is directory must be 0
+    for (int i = 0; i < INODE_NUM; i++) {
+        if (super_block.inode[i].used_size & 1<<7) { // Node is in use
+            if (!(super_block.inode[i].dir_parent < 128)) { // We are looking at a directory
+                if (!(super_block.inode[i].start_block == 0 && (super_block.inode[i].used_size & 127) == 0 )) {
+                    error_repr(5, new_disk_name);
+                    return;
+                }
+            }
 
+        }
+    }
 
-    // At the end, if the disk is mounted we shall store the name of the new disk as the main one
-    // if (m_disk_name.empty()) {
-    //     cout << "Error: No file system is mounted" << endl;
-    // }
+    // ==============Consistency check 6=================//
+    // 6. Parent can never be 126. If parent inode between 1-125 inclusive, parent inode must be in use and marked as a directory
+    for (int i = 0; i < INODE_NUM; i++) {
+        if (super_block.inode[i].used_size & 1<<7) {
+            int idx_parent = super_block.inode[i].dir_parent & idx_mask;
+            if (idx_parent == 126) {
+                error_repr(6, new_disk_name);
+                return;
+            }
+
+            if (idx_parent >=0 && idx_parent <=125) {
+                if (!((super_block.inode[idx_parent].used_size & (1 << 7)) && (super_block.inode[idx_parent].dir_parent < 128))) {
+                    error_repr(6, new_disk_name);
+                    return;
+                }
+            }
+        }
+    }
+
+    m_disk_name = new_disk_name;
 	disk.close();
     // Load the superblock of the file system <-- Read super block into mem
     // Check file system Consistency: --> DO NOT MOUNT, if Consistency check fails
-    // 6. Parent can never be 126. If parent inode between 1-125 inclusive, parent inode must be in use and marked as a directory
-
     // If pass, unmount the other ffd
     // If all is well set cwd to root of new file disk
     // NOTE: DO NOT FLUSH BUFFER WHEN MOUNTING A FS
+}
+
+void error_repr(int error_code, const char * new_disk_name) {
+     cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   error_code << ")" << endl;
 }
 
 // CONSISTENCY CHECK 1 HELPER

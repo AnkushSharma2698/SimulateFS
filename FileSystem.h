@@ -36,3 +36,4 @@ void fs_cd(char name[5]);
 
 // Helper methods
 void check_map_vs_inodes(map<int, int> &block_map);
+void error_repr(int error_code, const char * new_disk_name);
