@@ -14,10 +14,16 @@
 #define FREE_SPACE_LIST 16
 #define INODE_NUM 126
 #define BYTE_SIZE 8
+#define NUM_BLOCKS 128
 
 using namespace std;
 
+// GLOBAL VARIABLES
 Super_block super_block;
+fstream disk;
+
+
+// HELPERS
 
 void printBits(uint8_t byte) {
    int i;
@@ -25,6 +31,17 @@ void printBits(uint8_t byte) {
         printf("%d", !!((byte << i) & 0x80));
     }
     printf("\n");
+}
+
+void print_map(map<int,int> &my_map) {
+    map<int, int>::iterator itr; 
+    cout << "\nThe map gquiz1 is : \n"; 
+    cout << "\tKEY\tELEMENT\n"; 
+    for (itr = my_map.begin(); itr != my_map.end(); ++itr) { 
+        cout << '\t' << itr->first 
+             << '\t' << itr->second << '\n'; 
+    } 
+    cout << endl; 
 }
 
 void tokenize(string str, vector<string>&words) {
@@ -82,8 +99,8 @@ int main(int argc, char *argv[]) {
 
 // Implementations of the filesystem
 void fs_mount(const char *new_disk_name) {
-    fstream disk;
-    // Check if a disk with the given name exists in the cwd
+
+    // Open the disk
     disk.open(new_disk_name);
     
     if (!disk) {
@@ -91,7 +108,8 @@ void fs_mount(const char *new_disk_name) {
         return;
     }
 
-	disk.read(super_block.free_block_list, FREE_SPACE_LIST);// Read the FB list into memory
+    // Read the FB list into memory
+	disk.read(super_block.free_block_list, FREE_SPACE_LIST);
     // Read the rest of the inodes into memory into the inode list
 	for (uint8_t i = 0; i < INODE_NUM; i++) {
 		disk.read(super_block.inode[i].name, 5); // Read the name into mem
@@ -100,17 +118,12 @@ void fs_mount(const char *new_disk_name) {
 		disk.read((char*)&super_block.inode[i].dir_parent, 1);
 	}
 	
-	// Perform consistency checks
-	// Consistency Check 1: Blocks that are marked free in FSL cannot be allocated to any file
-	// Block in use, must be allocated to exactly one file
-	// Iterate over all inodes and store the start_block of each inode
-
-	// Initialize a counter for the used blocks in mem
-    // Check 1 setup
-    map<int, bool> used_block_map;
+	//===========Consistency Check 1============//
+    map<int, int> used_block_map;
+    init_map(used_block_map, NUM_BLOCKS);
     //Consistency check 1
 	check_map_vs_inodes(used_block_map);
-	int count = 0;
+    int count = 0;
 	for (unsigned int i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
 		uint8_t mask = 1 << 7;
 		while(mask) {
@@ -122,7 +135,9 @@ void fs_mount(const char *new_disk_name) {
 			if (super_block.free_block_list[i] & mask) {
 				// Block is apparently being used
 				if (!used_block_map[count]) {
-                    // cout << "BLOCK:" << count <<endl;
+                    cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "1" << ")" << endl;
+                    return;
+                } else if (used_block_map[count] > 1) {
                     cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   "1" << ")" << endl;
                     return;
                 }
@@ -140,13 +155,13 @@ void fs_mount(const char *new_disk_name) {
 	}
     cout << "Passed consistency check 1" << endl;
 
+	// Consistency check 2
+    // 2. name of every file/directory must be unique within a directory
+    
 
 	disk.close();
     // Load the superblock of the file system <-- Read super block into mem
     // Check file system Consistency: --> DO NOT MOUNT, if Consistency check fails
-    // 1.Free blocks in free space lists must not be allocated to anythimg
-    // 1. Blocks in use --> allocated to EXACTLY 1 file
-    // 2. name of every file/directory must be unique within a directory
     // 3. Free inode must have all bits = 0, else the "name" at least must have one non-zero bit
     // 4. The startblock of every inode that is a file must be between 1-127 inclusive
     // 5. size and start block of inode that is directory must be 0
@@ -158,7 +173,7 @@ void fs_mount(const char *new_disk_name) {
 }
 
 // This method is used as part of consistency check 1
-void check_map_vs_inodes(map<int, bool> &block_map) {
+void check_map_vs_inodes(map<int, int> &block_map) {
     uint8_t base_mask = 1 << 7;
     for (int i = 0; i < INODE_NUM; i++) { // Iterate all of the inodes
         // Check if the inode is in use
@@ -170,7 +185,9 @@ void check_map_vs_inodes(map<int, bool> &block_map) {
                 int blocks_covered = convertByteToDecimal(super_block.inode[i].used_size, BYTE_SIZE - 1);
                 // Do i even need to look at dir parent??
                 for (i = start_block_idx; i < start_block_idx  + blocks_covered; i++) {
-                    block_map[i] = true;
+                    // If the block is listed as in use, but the number of inodes using it is greater than 1
+                    int val = block_map[i] + 1;
+                    block_map[i] = val;
                 }
             }
         }

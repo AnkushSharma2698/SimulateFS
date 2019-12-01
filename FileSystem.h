@@ -1,7 +1,7 @@
 #define cout(n) cout << Line: __LINE__ << " "<< (n) << endl;
 #define init_map(map, size) { \
 	for (int i=0; i<(size);i++ ) { \
-		(map)[i] = false; \
+		(map)[i] = 0; \
 	} \
 }
 #include <stdio.h>
@@ -35,4 +35,4 @@ void fs_defrag(void);
 void fs_cd(char name[5]);
 
 // Helper methods
-void check_map_vs_inodes(map<int, bool> &block_map);
+void check_map_vs_inodes(map<int, int> &block_map);
