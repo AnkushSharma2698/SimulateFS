@@ -313,10 +313,10 @@ void check_map_vs_inodes(map<int, int> &block_map) {
                 // Determine the start block for this
                 int start_block_idx = convertByteToDecimal(super_block.inode[i].start_block, BYTE_SIZE);
                 int blocks_covered = convertByteToDecimal(super_block.inode[i].used_size, BYTE_SIZE - 1);
-                for (i = start_block_idx; i < start_block_idx  + blocks_covered; i++) {
+                for (int j = start_block_idx; j < start_block_idx  + blocks_covered; j++) {
                     // If the block is listed as in use, but the number of inodes using it is greater than 1
-                    int val = block_map[i] + 1;
-                    block_map[i] = val;
+                    int val = block_map[j] + 1;
+                    block_map[j] = val;
                 }
             }
         }
