@@ -23,7 +23,9 @@ using namespace std;
 // GLOBAL VARIABLES
 Super_block super_block;
 fstream disk;
-string m_disk_name; // Refers to the name of the currently mounted disk
+string m_disk_name;
+map<int, set<string>> directory_map; // Holds the directories and anything that may currently exist in it
+int cwd; // Refers to the name of the currently mounted disk
 
 
 // HELPERS
@@ -45,9 +47,9 @@ void print_map(map<int,int> &my_map) {
     } 
     cout << endl; 
 }
-void print_str_map(map<int, set<string>> directory_map) {
+void print_str_map(map<int, set<string>> my_map) {
         // REMOVE THIS TEST PRINT CODE
-    for (auto it = directory_map.begin(); it != directory_map.end();++it) {
+    for (auto it = my_map.begin(); it != my_map.end();++it) {
         cout <<"Key: " << it->first << endl;
     }
 }
@@ -61,7 +63,7 @@ void tokenize(string str, vector<string>&words) {
 
 void printVector(vector<string> &words) {
     for (auto x: words) {
-        cout << x << " ";
+        cout << x << endl;
     }
     cout << endl;
 }
@@ -87,24 +89,45 @@ int main(int argc, char *argv[]) {
         vector<string> words;
         // Turn command into an vector of string
         tokenize(command, words);
-
         switch(command[0]) {
-            case 'M':
+            case 'M': // Mount a disk
                 if (words.size() > 1) {
-                    fs_mount(words[1].c_str());
+                    char new_disk_name[5];
+                    strcpy(new_disk_name, words[1].c_str());
+                    fs_mount(new_disk_name);
                 } else {
-                    cout << "Error: Must provide name to mount disk" << endl;
+                    cerr << "Error: Must provide name to mount disk" << endl;
                 }
                 break;
-            case 'C':
+            case 'C': // Create file or directory
                 if (!m_disk_name.empty()) {
-
+                    // Maybe do some error handling here in case we get bad input
+                    if (words.size() < 3) {
+                        cerr << "Error: Must proved both a Name and Size, respectively" << endl;
+                    }else if (words[1].size() > 5) {
+                        cerr << "Error: File name can be 5 characters max" << endl;
+                    } else {
+                        char name[5];
+                        strcpy(name, words[1].c_str());
+                        fs_create(name, stoi(words[2]));
+                    }
                 } else {
-                    cout << "Error: no file system is mounted" << endl;
+                    cerr << "Error: no file system is mounted" << endl;
                 }
+                break;
+            case 'D': // Deletion Case
+                if (!m_disk_name.empty()) {
+                    if (words.size() > 1) {
+                        char delete_name[5];
+                        strcpy(delete_name, words[1].c_str());
+                        fs_delete(delete_name);
+                     }
+                    else{cerr << "Error: Must provide name to delete file/directory" << endl;}
+                } else {cerr << "Error: no file system is mounted" << endl;}
                 break;
             default:
-                cout << "Error: Command Not Found" << endl;
+                cerr << "Error: Command Not Found" << endl;
+                break;
         }
 
     }
@@ -171,7 +194,7 @@ void fs_mount(const char *new_disk_name) {
 
     // ===================Consistency check 2 ====================//
     // 2. name of every file/directory must be unique within a directory
-    map<int, set<string>> directory_map;
+    
     directory_map[127]; // Root directory index
 
     // Iterate each inode to find out which one is directory
@@ -268,17 +291,14 @@ void fs_mount(const char *new_disk_name) {
         }
     }
 
+    // mount the disk and set the cwd
     m_disk_name = new_disk_name;
+    cwd = 127;
 	disk.close();
-    // Load the superblock of the file system <-- Read super block into mem
-    // Check file system Consistency: --> DO NOT MOUNT, if Consistency check fails
-    // If pass, unmount the other ffd
-    // If all is well set cwd to root of new file disk
-    // NOTE: DO NOT FLUSH BUFFER WHEN MOUNTING A FS
 }
 
 void error_repr(int error_code, const char * new_disk_name) {
-     cout << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   error_code << ")" << endl;
+     cerr << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   error_code << ")" << endl;
 }
 
 // CONSISTENCY CHECK 1 HELPER
@@ -293,7 +313,6 @@ void check_map_vs_inodes(map<int, int> &block_map) {
                 // Determine the start block for this
                 int start_block_idx = convertByteToDecimal(super_block.inode[i].start_block, BYTE_SIZE);
                 int blocks_covered = convertByteToDecimal(super_block.inode[i].used_size, BYTE_SIZE - 1);
-                // Do i even need to look at dir parent??
                 for (i = start_block_idx; i < start_block_idx  + blocks_covered; i++) {
                     // If the block is listed as in use, but the number of inodes using it is greater than 1
                     int val = block_map[i] + 1;
@@ -306,16 +325,129 @@ void check_map_vs_inodes(map<int, int> &block_map) {
 
 
 void fs_create(char name[5], int size) {
-    // Create a file on the ffd
-    // Make sure to check that there is an available disk right now
-    // If there is, make a file, create file under the cwd
-    // The cwd is not always the root
-    // Assume the size of the file is given, make sure file is able to be allocated in contiguous space
-    // size 0 means user wants to make a directory
-    // Check the name, make sure it is unique in the same cwd
-    // . and .. are reserved. .. in root means stay in root
+    string n(name);
+    bool is_file = (size > 0)? true: false;
+    set<string>::iterator it;
+    int start_block = 0;
+    // Check for a free inode
+    int free_inode = 10000; // Set it to an arbitrarily high value
+    for (int i = 0; i < INODE_NUM; i++) {
+        if (!(super_block.inode[i].used_size & (1<<7))) { // If the inode is not in use
+            free_inode = i;
+            break;
+        }
+    }
+    if (free_inode == 10000) { // Fail is no free inode is found
+        cerr << "Error: Superblock in disk " << m_disk_name << " is full, cannot create "<< name << endl;
+        return;
+    }
+    // Make sure the name is not a reserved value
+    if (n.compare(".") == 0 || n.compare("..") == 0) {
+        cerr << "Error: '..' and '.' are reserved" << endl;
+        return;
+    }
+    // Make sure there isnt duplicates in the cwd
+    if (!directory_map[cwd].insert(n).second) { 
+        // This name is already in the cwd
+        cerr << "Error: File or directory " << name << " already exists" << endl;
+        return;
+    }
+
+    if (is_file) {
+        // Go through the free block list and see if there is space for 'size' contiguous blocks
+        int count = 0;
+        start_block = 10000;
+        int consecutive_blocks = 0;
+        for (unsigned int i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
+            uint8_t mask = 1<<7; 
+            while (mask) {
+                if (i == 0 && (mask == 128))  { // Checking if we are looking at the super block
+                    count++;
+                    mask >>= 1;
+                    continue;
+                }
+                if (super_block.free_block_list[i] & mask) { // This block is in is use
+                    cout << "block: "<< count << "is in use" << endl;
+                    consecutive_blocks = 0;
+                } else {
+                    cout << "block: "<< count << "is free" << endl;
+                    consecutive_blocks++;
+                    cout << "consec found : " << consecutive_blocks << endl;
+                    if (consecutive_blocks == size) {
+                        start_block = count - consecutive_blocks + 1;
+                        break;
+                    }
+                }
+                count++;
+                mask >>=1;
+            }
+            if (start_block != 10000) {
+                break;
+            }
+        }
+
+        if (start_block == 10000) {
+            // Remove the name from the map too
+            it = directory_map[cwd].find(n);
+            directory_map[cwd].erase(it);
+            // We did not find the consective blocks we wanted to
+            cerr << "Cannot allocate " << size << " on " << m_disk_name << endl;
+            return;
+        }
+
+        // Now set up the file to have the space it needs
+        int block_count = 0;
+        int start_index = (int) start_block / 8; // Which index to start on in the FBL
+        uint8_t mask_offset = start_block - start_index;
+        for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
+            uint8_t mask = 1<<7; 
+            if ((int)i == start_index) {
+                mask >>=mask_offset;
+            }
+            while (mask) {
+                if (block_count == size) {
+                    break;
+                }
+                super_block.free_block_list[i] |= mask;
+                block_count++;
+                mask>>=1;
+            }
+            if (block_count == size) {
+                break;
+            }
+        }
+
+    }
+    
+    // Manipulate the inode
+    strcpy(super_block.inode[free_inode].name, name); // Set Name
+    super_block.inode[free_inode].start_block = start_block; // Set start block
+    if (is_file) { // This is a file
+        super_block.inode[free_inode].used_size = 128 | size; // Set SIZE
+    } else { // A directory
+        super_block.inode[free_inode].used_size = 128;
+    }
+    if (is_file) {
+        super_block.inode[free_inode].dir_parent = 0 | cwd;
+    } else {
+        super_block.inode[free_inode].dir_parent = 128 | cwd;
+    }
+
+    // Write the superblock to memory again
+    disk.open(m_disk_name);
+    // write the FB list into memory
+	disk.write(super_block.free_block_list, FREE_SPACE_LIST);
+    // Write the rest of the inodes into memory into the inode list
+	for (uint8_t i = 0; i < INODE_NUM; i++) {
+		disk.write(super_block.inode[i].name, 5); // Read the name into mem
+		disk.write((char*)&super_block.inode[i].used_size, 1);
+		disk.write((char*)&super_block.inode[i].start_block, 1);
+		disk.write((char*)&super_block.inode[i].dir_parent, 1);
+	}
+    disk.close();
 }
 void fs_delete(char name[5]) {
+    cout << "in the deletion case" <<endl;
     // delete file or dir
     // if directory is selected, remove everything inside it
     // Must change the file block and inodes
