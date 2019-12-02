@@ -367,12 +367,9 @@ void fs_create(char name[5], int size) {
                     continue;
                 }
                 if (super_block.free_block_list[i] & mask) { // This block is in is use
-                    cout << "block: "<< count << "is in use" << endl;
                     consecutive_blocks = 0;
                 } else {
-                    cout << "block: "<< count << "is free" << endl;
                     consecutive_blocks++;
-                    cout << "consec found : " << consecutive_blocks << endl;
                     if (consecutive_blocks == size) {
                         start_block = count - consecutive_blocks + 1;
                         break;
@@ -397,8 +394,8 @@ void fs_create(char name[5], int size) {
 
         // Now set up the file to have the space it needs
         int block_count = 0;
-        int start_index = (int) start_block / 8; // Which index to start on in the FBL
-        uint8_t mask_offset = start_block - start_index;
+        int start_index = start_block / 8; // Which index to start on in the FBL
+        int mask_offset = start_block - (start_index * 8);
         for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
             uint8_t mask = 1<<7; 
             if ((int)i == start_index) {
