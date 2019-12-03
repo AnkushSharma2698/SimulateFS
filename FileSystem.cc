@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <sstream>
 #include <string>
+#include <cstring>
 #include <string.h>
 #include <vector>
 #include <fstream>
@@ -33,14 +34,14 @@ void printBits(uint8_t byte) {
 }
 
 bool check_exists(string name, int current_dir) {
-    bool duplicate = false;
+    bool exist = false;
     for (auto it = directory_map[current_dir].begin(); it != directory_map[current_dir].end(); ++it) {
         string inode_name(super_block.inode[*it].name);
         if (inode_name == name) {
-            duplicate = true;
+            exist = true;
         }
     }
-    return duplicate;
+    return exist;
 }
 
 int get_index_from_map_by_name(string name, int current_dir) {
@@ -362,7 +363,7 @@ void fs_create(char name[5], int size) {
         return;
     }
     // Make sure there isnt duplicates in the cwd
-    if (check_exists(name, cwd)) { 
+    if (check_exists(n, cwd)) { 
         // This name is already in the cwd
         cerr << "Error: File or directory " << name << " already exists" << endl;
         return;
@@ -430,7 +431,7 @@ void fs_create(char name[5], int size) {
     }
     
     // Manipulate the inode
-    strcpy(super_block.inode[free_inode].name, name); // Set Name
+    strncpy(super_block.inode[free_inode].name, name, 5); // Set Name
     super_block.inode[free_inode].start_block = start_block; // Set start block
     if (is_file) { // This is a file
         super_block.inode[free_inode].used_size = 128 | size; // Set SIZE
@@ -458,6 +459,7 @@ void fs_create(char name[5], int size) {
 	}
     disk.close();
 }
+
 void fs_delete(char name[5]) {
     // Check if the file or directory exists in the cwd
     string n(name);
@@ -466,10 +468,6 @@ void fs_delete(char name[5]) {
     disk.open(m_disk_name);
     recursive_delete(inode_idx, cwd);
     disk.close();
-
-    // Get inode index of the file or directory
-    // if directory is selected, remove everything inside it
-    // Must change the file block and inodes
 }
 
 void recursive_delete(int idx, int cwd) {
@@ -479,33 +477,58 @@ void recursive_delete(int idx, int cwd) {
             recursive_delete(*it, idx);
         }
         // Remove the directory from the map by its own idx
-        // map<int, int>::iterator it;
-        // it = directory_map.find(idx);
-        // directory_map.erase(it);
+        map<int, set<int>>::iterator it;
+        it = directory_map.find(idx);
+        directory_map.erase(it);
     }
     // Remove the directory index from the set of the parent dir
     set<int>::iterator it;
     it = directory_map[cwd].find(idx);
-    // Zero out the corresponding inode in memory
-    // disk.seekp(FREE_SPACE_LIST + (idx * 8), ios_base::beg);
-    // disk.write("\0\0\0\0\0\0\0\0", 8);
+    
     int start_block = convertByteToDecimal(super_block.inode[idx].start_block, BYTE_SIZE);
     int blocks_covered = convertByteToDecimal(super_block.inode[idx].used_size, BYTE_SIZE - 1);
-    cout << "startblock: " << start_block << endl;
-    cout << "blocks_covered: " << blocks_covered << endl;
     // Set the bits in the free space list to 0
-    // disk.seekp(start_block, ios_base::beg);
-    // Erase from the actual blocks
+    // Now set up the file to have the space it needs
+    int block_count = 0;
+    int start_index = start_block / 8; // Which index to start on in the FBL
+    int mask_offset = start_block - (start_index * 8);
+    for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
+        uint8_t mask = 1<<7; 
+        if ((int)i == start_index) {
+            mask >>=mask_offset;
+        }
+        while (mask) {
+            if (block_count == blocks_covered) {
+                break;
+            }
+            super_block.free_block_list[i] ^= mask;
+            block_count++;
+            mask>>=1;
+        }
+        if (block_count == blocks_covered) {
+            break;
+        }
+    }
+    //Writing super block into mem
+    disk.write(super_block.free_block_list, FREE_SPACE_LIST);
+    // Zero out the corresponding inode in memory
+    disk.seekp(FREE_SPACE_LIST + (idx * 8), ios_base::beg);
+    disk.write("\0\0\0\0\0\0\0\0", 8);
+
     
+    // Erase from the actual blocks
+    // MUST DO THIS PART
     // Zero out the inode
-    // super_block.inode[idx].start_block = 0;
-    // super_block.inode[idx].used_size = 0;
-    // super_block.inode[idx].name = "\0\0\0\0\0";
-    // super_block.inode[idx].dir_parent = 0;
+    super_block.inode[idx].start_block = 0;
+    super_block.inode[idx].used_size = 0;
+    memset(super_block.inode[idx].name, 0, 5);
+    super_block.inode[idx].dir_parent = 0;
 }
 
 void fs_read(char name[5], int block_num) {
     // Read 1kb data into buffer
+    string n(name);
+    check_exists(n, cwd);
 }
 void fs_write(char name[5], int block_num) {
     // Put 1kn data in buffer to the specified block
