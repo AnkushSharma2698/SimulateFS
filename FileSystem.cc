@@ -13,18 +13,13 @@
 // Headers to be included
 #include "FileSystem.h"
 
-#define FREE_SPACE_LIST 16
-#define INODE_NUM 126
-#define BYTE_SIZE 8
-#define NUM_BLOCKS 128
-
 using namespace std;
 
 // GLOBAL VARIABLES
 Super_block super_block;
 fstream disk;
 string m_disk_name;
-map<int, set<string>> directory_map; // Holds the directories and anything that may currently exist in it
+map<int, set<int>> directory_map; // Holds the directories and anything that may currently exist in it
 int cwd; // Refers to the name of the currently mounted disk
 
 
@@ -35,6 +30,28 @@ void printBits(uint8_t byte) {
         printf("%d", !!((byte << i) & 0x80));
     }
     printf("\n");
+}
+
+bool check_exists(string name, int current_dir) {
+    bool duplicate = false;
+    for (auto it = directory_map[current_dir].begin(); it != directory_map[current_dir].end(); ++it) {
+        string inode_name(super_block.inode[*it].name);
+        if (inode_name == name) {
+            duplicate = true;
+        }
+    }
+    return duplicate;
+}
+
+int get_index_from_map_by_name(string name, int current_dir) {
+    int idx;
+    for (auto it = directory_map[current_dir].begin(); it != directory_map[current_dir].end(); ++it) {
+        string inode_name(super_block.inode[*it].name);
+        if (inode_name == name) {
+            idx = *it;
+        }
+    }
+    return idx;
 }
 
 void print_map(map<int,int> &my_map) {
@@ -211,8 +228,7 @@ void fs_mount(const char *new_disk_name) {
         // Check if the inode we are looking at is in use
         if (super_block.inode[i].used_size & (1 << 7)) {
             int idx = super_block.inode[i].dir_parent & idx_mask;
-            string name(super_block.inode[i].name);
-            if (!directory_map[idx].insert(name).second) {
+            if (!directory_map[idx].insert(i).second) {
                 // There is a duplicate inserted into a set
                 error_repr(2, new_disk_name);
                 return;
@@ -323,7 +339,6 @@ void check_map_vs_inodes(map<int, int> &block_map) {
 	}
 }
 
-
 void fs_create(char name[5], int size) {
     string n(name);
     bool is_file = (size > 0)? true: false;
@@ -347,7 +362,7 @@ void fs_create(char name[5], int size) {
         return;
     }
     // Make sure there isnt duplicates in the cwd
-    if (!directory_map[cwd].insert(n).second) { 
+    if (check_exists(name, cwd)) { 
         // This name is already in the cwd
         cerr << "Error: File or directory " << name << " already exists" << endl;
         return;
@@ -385,8 +400,6 @@ void fs_create(char name[5], int size) {
 
         if (start_block == 10000) {
             // Remove the name from the map too
-            it = directory_map[cwd].find(n);
-            directory_map[cwd].erase(it);
             // We did not find the consective blocks we wanted to
             cerr << "Cannot allocate " << size << " on " << m_disk_name << endl;
             return;
@@ -430,6 +443,8 @@ void fs_create(char name[5], int size) {
         super_block.inode[free_inode].dir_parent = 128 | cwd;
     }
 
+    directory_map[cwd].insert(free_inode);
+
     // Write the superblock to memory again
     disk.open(m_disk_name);
     // write the FB list into memory
@@ -444,11 +459,51 @@ void fs_create(char name[5], int size) {
     disk.close();
 }
 void fs_delete(char name[5]) {
-    cout << "in the deletion case" <<endl;
-    // delete file or dir
+    // Check if the file or directory exists in the cwd
+    string n(name);
+    if (!check_exists(n, cwd)) {cerr << "File or directory " << n << " does not exist" << endl; return;}
+    int inode_idx = get_index_from_map_by_name(n, cwd);
+    disk.open(m_disk_name);
+    recursive_delete(inode_idx, cwd);
+    disk.close();
+
+    // Get inode index of the file or directory
     // if directory is selected, remove everything inside it
     // Must change the file block and inodes
 }
+
+void recursive_delete(int idx, int cwd) {
+    // If directory
+    if (!(super_block.inode[idx].dir_parent < 128)) {
+        for (auto it = directory_map[idx].begin(); it != directory_map[idx].end(); ++it) {
+            recursive_delete(*it, idx);
+        }
+        // Remove the directory from the map by its own idx
+        // map<int, int>::iterator it;
+        // it = directory_map.find(idx);
+        // directory_map.erase(it);
+    }
+    // Remove the directory index from the set of the parent dir
+    set<int>::iterator it;
+    it = directory_map[cwd].find(idx);
+    // Zero out the corresponding inode in memory
+    // disk.seekp(FREE_SPACE_LIST + (idx * 8), ios_base::beg);
+    // disk.write("\0\0\0\0\0\0\0\0", 8);
+    int start_block = convertByteToDecimal(super_block.inode[idx].start_block, BYTE_SIZE);
+    int blocks_covered = convertByteToDecimal(super_block.inode[idx].used_size, BYTE_SIZE - 1);
+    cout << "startblock: " << start_block << endl;
+    cout << "blocks_covered: " << blocks_covered << endl;
+    // Set the bits in the free space list to 0
+    // disk.seekp(start_block, ios_base::beg);
+    // Erase from the actual blocks
+    
+    // Zero out the inode
+    // super_block.inode[idx].start_block = 0;
+    // super_block.inode[idx].used_size = 0;
+    // super_block.inode[idx].name = "\0\0\0\0\0";
+    // super_block.inode[idx].dir_parent = 0;
+}
+
 void fs_read(char name[5], int block_num) {
     // Read 1kb data into buffer
 }

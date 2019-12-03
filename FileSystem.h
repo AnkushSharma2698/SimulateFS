@@ -9,6 +9,11 @@
 #include <iostream>
 #include <map>
 
+#define FREE_SPACE_LIST 16
+#define INODE_NUM 126
+#define BYTE_SIZE 8
+#define NUM_BLOCKS 128
+
 using namespace std;
 
 typedef struct {
@@ -37,3 +42,4 @@ void fs_cd(char name[5]);
 // Helper methods
 void check_map_vs_inodes(map<int, int> &block_map);
 void error_repr(int error_code, const char * new_disk_name);
+void recursive_delete(int idx, int cwd);
