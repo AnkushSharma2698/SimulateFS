@@ -229,10 +229,12 @@ void fs_mount(const char *new_disk_name) {
         // Check if the inode we are looking at is in use
         if (super_block.inode[i].used_size & (1 << 7)) {
             int idx = super_block.inode[i].dir_parent & idx_mask;
-            if (!directory_map[idx].insert(i).second) {
-                // There is a duplicate inserted into a set
+            string n(super_block.inode[i].name);
+            if (check_exists(n, idx)) {
                 error_repr(2, new_disk_name);
                 return;
+            } else {
+                directory_map[idx].insert(i);
             }
         }
     }
@@ -484,6 +486,7 @@ void recursive_delete(int idx, int cwd) {
     // Remove the directory index from the set of the parent dir
     set<int>::iterator it;
     it = directory_map[cwd].find(idx);
+    directory_map[cwd].erase(it);
     
     int start_block = convertByteToDecimal(super_block.inode[idx].start_block, BYTE_SIZE);
     int blocks_covered = convertByteToDecimal(super_block.inode[idx].used_size, BYTE_SIZE - 1);
