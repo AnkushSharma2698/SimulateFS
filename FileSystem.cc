@@ -36,7 +36,9 @@ void printBits(uint8_t byte) {
 bool check_exists(string name, int current_dir) {
     bool exist = false;
     for (auto it = directory_map[current_dir].begin(); it != directory_map[current_dir].end(); ++it) {
-        string inode_name(super_block.inode[*it].name);
+        char name_array[6] = {0,0,0,0,0,0,};
+        get_name_from_inode(*it, name_array);
+        string inode_name(name_array);
         if (inode_name == name) {
             exist = true;
         }
@@ -53,6 +55,16 @@ int get_index_from_map_by_name(string name, int current_dir) {
         }
     }
     return idx;
+}
+
+void get_name_from_inode(int index, char * name_array) {
+    for (int i = 0; i < 6; i++) {
+        if (super_block.inode[index].name[i] != '\0') {
+            name_array[i] = super_block.inode[index].name[i];
+        } else {
+            break;
+        }
+    }
 }
 
 void print_map(map<int,int> &my_map) {
@@ -103,27 +115,33 @@ int convertByteToDecimal(uint8_t n, int iterations){
 
 int main(int argc, char *argv[]) {
     string command;
-    while (getline(cin, command)) {
+    int line_num = 0;
+    string input_file_name = "consistency-input";
+    fstream input_file(input_file_name);
+    while (getline(input_file, command)) {
+        ++line_num;
         vector<string> words;
         // Turn command into an vector of string
         tokenize(command, words);
+        if (command.size() == 0) {
+            continue;
+        }
+        
         switch(command[0]) {
             case 'M': // Mount a disk
                 if (words.size() > 1) {
-                    char new_disk_name[5];
-                    strcpy(new_disk_name, words[1].c_str());
-                    fs_mount(new_disk_name);
+                    fs_mount(words[1].c_str());
                 } else {
-                    cerr << "Error: Must provide name to mount disk" << endl;
+                    cerr << "Command Error: " << input_file_name << ", "<< line_num << endl;
                 }
                 break;
             case 'C': // Create file or directory
                 if (!m_disk_name.empty()) {
                     // Maybe do some error handling here in case we get bad input
                     if (words.size() < 3) {
-                        cerr << "Error: Must proved both a Name and Size, respectively" << endl;
+                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                     }else if (words[1].size() > 5) {
-                        cerr << "Error: File name can be 5 characters max" << endl;
+                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                     } else {
                         char name[5];
                         strcpy(name, words[1].c_str());
@@ -140,16 +158,16 @@ int main(int argc, char *argv[]) {
                         strcpy(delete_name, words[1].c_str());
                         fs_delete(delete_name);
                      }
-                    else{cerr << "Error: Must provide name to delete file/directory" << endl;}
+                    else{cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;}
                 } else {cerr << "Error: no file system is mounted" << endl;}
                 break;
             default:
-                cerr << "Error: Command Not Found" << endl;
+                cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                 break;
         }
 
     }
-
+    disk.close();
     return 0;
 }
 
@@ -169,9 +187,9 @@ void fs_mount(const char *new_disk_name) {
     // Read the rest of the inodes into memory into the inode list
 	for (uint8_t i = 0; i < INODE_NUM; i++) {
 		disk.read(super_block.inode[i].name, 5); // Read the name into mem
-		disk.read((char*)&super_block.inode[i].used_size, 1);
-		disk.read((char*)&super_block.inode[i].start_block, 1);
-		disk.read((char*)&super_block.inode[i].dir_parent, 1);
+		disk.read(&super_block.inode[i].used_size, 1);
+		disk.read(&super_block.inode[i].start_block, 1);
+		disk.read(&super_block.inode[i].dir_parent, 1);
 	}
 	
 	//===========Consistency Check 1============//
@@ -212,7 +230,8 @@ void fs_mount(const char *new_disk_name) {
 
     // ===================Consistency check 2 ====================//
     // 2. name of every file/directory must be unique within a directory
-    
+    // Clear the map 
+    directory_map.clear();
     directory_map[127]; // Root directory index
 
     // Iterate each inode to find out which one is directory
@@ -228,8 +247,15 @@ void fs_mount(const char *new_disk_name) {
     for (int i = 0; i< INODE_NUM; i++) {
         // Check if the inode we are looking at is in use
         if (super_block.inode[i].used_size & (1 << 7)) {
-            int idx = super_block.inode[i].dir_parent & idx_mask;
-            string n(super_block.inode[i].name);
+            int idx;
+            if (super_block.inode[i].dir_parent > 127) {
+                idx = (int)super_block.inode[i].dir_parent - 128;
+            } else {
+                idx = (int)super_block.inode[i].dir_parent;
+            }
+            char name_array[6] = {0,0,0,0,0,0};
+            get_name_from_inode(i, name_array);
+            string n(name_array);
             if (check_exists(n, idx)) {
                 error_repr(2, new_disk_name);
                 return;
@@ -244,13 +270,28 @@ void fs_mount(const char *new_disk_name) {
     for (int i = 0; i < INODE_NUM; i++) {
         if (super_block.inode[i].used_size & 1<< 7) {
             // Check if the name has at least one bit in it that is not 0
-            if (strcmp(super_block.inode[i].name, "\0\0\0\0\0") ==0) {
+            bool has_non_zero = false;
+            for(int j=0; j < 5; j++) {
+                if (super_block.inode[i].name[j] != 0) {
+
+                    has_non_zero = true;
+                    break;
+                }
+            }
+            if (!has_non_zero) {
                 error_repr(3, new_disk_name);
                 return;
             }
         } else {
             // All every bit in this inode must be 0
-            if (!strcmp(super_block.inode[i].name, "\0\0\0\0\0") == 0) {
+            bool has_non_zero = false;
+            for(int j=0; j < 5; j++) {
+                if (super_block.inode[i].name[j] != 0) {
+                    has_non_zero = true;
+                    break;
+                }
+            }
+            if (has_non_zero) {
                 error_repr(3, new_disk_name);
                 return;
             }
@@ -317,7 +358,8 @@ void fs_mount(const char *new_disk_name) {
 }
 
 void error_repr(int error_code, const char * new_disk_name) {
-     cerr << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   error_code << ")" << endl;
+    cerr << "Error: File system in " << new_disk_name <<  " is inconsistent (error code: " <<   error_code << ")" << endl;
+    disk.close();
 }
 
 // CONSISTENCY CHECK 1 HELPER

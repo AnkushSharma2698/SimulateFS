@@ -18,9 +18,9 @@ using namespace std;
 
 typedef struct {
 	char name[5];        // Name of the file or directory (First 5 bytes)
-	uint8_t used_size;   // Inode state and the size of the file or directory
-	uint8_t start_block; // Index of the start file block
-	uint8_t dir_parent;  // Inode mode and the index of the parent inode
+	char used_size;   // Inode state and the size of the file or directory
+	char start_block; // Index of the start file block
+	char dir_parent;  // Inode mode and the index of the parent inode
 } Inode;
 
 typedef struct {
@@ -43,3 +43,4 @@ void fs_cd(char name[5]);
 void check_map_vs_inodes(map<int, int> &block_map);
 void error_repr(int error_code, const char * new_disk_name);
 void recursive_delete(int idx, int cwd);
+void get_name_from_inode(int index, char * name_array);
