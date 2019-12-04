@@ -308,8 +308,10 @@ void fs_mount(const char *new_disk_name) {
     for (int i = 0; i < INODE_NUM; i++) {
         if (super_block.inode[i].used_size & 1<<7) { // Node is in use
             // Check if the inode is a file
-            if (super_block.inode[i].dir_parent < 128) {
-                if (!(super_block.inode[i].start_block > 0 && super_block.inode[i].start_block < 128)) {
+            int dir_parent_val =  convertByteToDecimal(super_block.inode[i].dir_parent, BYTE_SIZE);
+            if (dir_parent_val < 128) {
+                int start_block_val =  convertByteToDecimal(super_block.inode[i].start_block, BYTE_SIZE);
+                if (!(start_block_val > 0 && start_block_val < 128)) {
                     error_repr(4, new_disk_name);
                     return;
                 }
@@ -317,12 +319,12 @@ void fs_mount(const char *new_disk_name) {
 
         }
     }
-    
     // ==============Consistency Check 5==================//
     // 5. size and start block of inode that is directory must be 0
     for (int i = 0; i < INODE_NUM; i++) {
         if (super_block.inode[i].used_size & 1<<7) { // Node is in use
-            if (!(super_block.inode[i].dir_parent < 128)) { // We are looking at a directory
+            int dir_parent_val =  convertByteToDecimal(super_block.inode[i].dir_parent, BYTE_SIZE);
+            if (dir_parent_val > 127) { // We are looking at a directory
                 if (!(super_block.inode[i].start_block == 0 && (super_block.inode[i].used_size & 127) == 0 )) {
                     error_repr(5, new_disk_name);
                     return;
@@ -343,7 +345,15 @@ void fs_mount(const char *new_disk_name) {
             }
 
             if (idx_parent >=0 && idx_parent <=125) {
-                if (!((super_block.inode[idx_parent].used_size & (1 << 7)) && (super_block.inode[idx_parent].dir_parent < 128))) {
+                // Check if in use
+                if (!(super_block.inode[idx_parent].used_size & 1<<7)) {
+                    error_repr(6, new_disk_name);
+                    return;   
+                }
+                // Check if the inode is marked as a dir
+                int dir_parent_val =  convertByteToDecimal(super_block.inode[idx_parent].dir_parent, BYTE_SIZE);
+                if (dir_parent_val < 128) {
+                    // This is pointing to a file so fail
                     error_repr(6, new_disk_name);
                     return;
                 }
