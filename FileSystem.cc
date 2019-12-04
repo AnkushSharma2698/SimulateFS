@@ -36,11 +36,15 @@ void printBits(uint8_t byte) {
 bool check_exists(string name, int current_dir) {
     bool exist = false;
     for (auto it = directory_map[current_dir].begin(); it != directory_map[current_dir].end(); ++it) {
-        char name_array[6] = {0,0,0,0,0,0,};
+        char name_array[6] = {0,0,0,0,0,0};
         get_name_from_inode(*it, name_array);
         string inode_name(name_array);
-        if (inode_name == name) {
+        if (inode_name.size() == 6) {
+            inode_name.erase(5, 1);
+        }
+        if (inode_name.compare(name) == 0) {
             exist = true;
+            break;
         }
     }
     return exist;
@@ -49,9 +53,15 @@ bool check_exists(string name, int current_dir) {
 int get_index_from_map_by_name(string name, int current_dir) {
     int idx;
     for (auto it = directory_map[current_dir].begin(); it != directory_map[current_dir].end(); ++it) {
-        string inode_name(super_block.inode[*it].name);
-        if (inode_name == name) {
+        char name_array[6] = {0,0,0,0,0,0};
+        get_name_from_inode(*it, name_array);
+        string inode_name(name_array);
+        if (inode_name.size() == 6) {
+            inode_name.erase(5, 1);
+        }
+        if (inode_name.compare(name)==0) {
             idx = *it;
+            break;
         }
     }
     return idx;
@@ -61,6 +71,16 @@ void get_name_from_inode(int index, char * name_array) {
     for (int i = 0; i < 6; i++) {
         if (super_block.inode[index].name[i] != '\0') {
             name_array[i] = super_block.inode[index].name[i];
+        } else {
+            break;
+        }
+    }
+}
+
+void transfer_char_to_char_array(char * output_array, char * input_array) {
+    for (int i = 0; i < 6; i++) {
+        if (input_array[i] != '\0') {
+            output_array[i] = input_array[i];
         } else {
             break;
         }
@@ -116,7 +136,7 @@ int convertByteToDecimal(uint8_t n, int iterations){
 int main(int argc, char *argv[]) {
     string command;
     int line_num = 0;
-    string input_file_name = "consistency-input";
+    string input_file_name = "inputFile";
     fstream input_file(input_file_name);
     while (getline(input_file, command)) {
         ++line_num;
@@ -248,10 +268,11 @@ void fs_mount(const char *new_disk_name) {
         // Check if the inode we are looking at is in use
         if (super_block.inode[i].used_size & (1 << 7)) {
             int idx;
-            if (super_block.inode[i].dir_parent > 127) {
-                idx = (int)super_block.inode[i].dir_parent - 128;
+            int dir_parent_val = convertByteToDecimal(super_block.inode[i].dir_parent, BYTE_SIZE);
+            if (dir_parent_val > 127) {
+                idx = dir_parent_val - 128;
             } else {
-                idx = (int)super_block.inode[i].dir_parent;
+                idx = super_block.inode[i].dir_parent;
             }
             char name_array[6] = {0,0,0,0,0,0};
             get_name_from_inode(i, name_array);
@@ -343,7 +364,6 @@ void fs_mount(const char *new_disk_name) {
                 error_repr(6, new_disk_name);
                 return;
             }
-
             if (idx_parent >=0 && idx_parent <=125) {
                 // Check if in use
                 if (!(super_block.inode[idx_parent].used_size & 1<<7)) {
@@ -395,9 +415,11 @@ void check_map_vs_inodes(map<int, int> &block_map) {
 }
 
 void fs_create(char name[5], int size) {
-    string n(name);
+    // Make sure there isnt duplicates in the cwd
+    char new_name[6] = {0,0,0,0,0,0};
+    transfer_char_to_char_array(new_name, name);
+    string n(new_name);
     bool is_file = (size > 0)? true: false;
-    set<string>::iterator it;
     int start_block = 0;
     // Check for a free inode
     int free_inode = 10000; // Set it to an arbitrarily high value
@@ -416,7 +438,7 @@ void fs_create(char name[5], int size) {
         cerr << "Error: '..' and '.' are reserved" << endl;
         return;
     }
-    // Make sure there isnt duplicates in the cwd
+    
     if (check_exists(n, cwd)) { 
         // This name is already in the cwd
         cerr << "Error: File or directory " << name << " already exists" << endl;
@@ -485,7 +507,7 @@ void fs_create(char name[5], int size) {
     }
     
     // Manipulate the inode
-    strncpy(super_block.inode[free_inode].name, name, 5); // Set Name
+    strncpy(super_block.inode[free_inode].name, new_name, 5); // Set Name
     super_block.inode[free_inode].start_block = start_block; // Set start block
     if (is_file) { // This is a file
         super_block.inode[free_inode].used_size = 128 | size; // Set SIZE
@@ -516,7 +538,9 @@ void fs_create(char name[5], int size) {
 
 void fs_delete(char name[5]) {
     // Check if the file or directory exists in the cwd
-    string n(name);
+    char new_name[6] = {0,0,0,0,0,0};
+    transfer_char_to_char_array(new_name, name);
+    string n(new_name);
     if (!check_exists(n, cwd)) {cerr << "File or directory " << n << " does not exist" << endl; return;}
     int inode_idx = get_index_from_map_by_name(n, cwd);
     disk.open(m_disk_name);
@@ -572,6 +596,14 @@ void recursive_delete(int idx, int cwd) {
 
     
     // Erase from the actual blocks
+    if (start_block != 0) { // This means we are looking at a file
+        char one_block[1024];
+        memset(one_block, 0, 1024);
+        disk.seekp(1024 * start_block, ios_base::beg);
+        for (int i = 0; i < block_count; i++) {
+            disk.write(one_block, 1024);
+        }
+    }
     // MUST DO THIS PART
     // Zero out the inode
     super_block.inode[idx].start_block = 0;
