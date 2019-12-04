@@ -95,6 +95,17 @@ void transfer_char_to_char_array(char * output_array, char * input_array) {
     }
 }
 
+void read_into_buf(string cmd, char * buf) {
+    cout << "The command: " << cmd << endl;
+    memset(buf, '\0', 1024);
+    for (auto it = cmd.begin() + 2; it!=cmd.end(); ++it) {
+
+        cout << "value:" <<*it;
+    }
+    cout << endl;
+    // Set the whole buffer to 0;
+}
+
 void print_map(map<int,int> &my_map) {
     map<int, int>::iterator itr; 
     cout << "\nThe map gquiz1 is : \n"; 
@@ -157,8 +168,7 @@ int main(int argc, char *argv[]) {
         if (command.size() == 0) {
             continue;
         }
-        
-        switch(command[0]) {
+        switch(words[0][0]) {
             case 'M': // Mount a disk
                 if (words.size() == 2) {
                     fs_mount(words[1].c_str());
@@ -219,6 +229,9 @@ int main(int argc, char *argv[]) {
                 }
                 break;
             case 'B':
+                // Special Parsing
+                char buf[1024]; // This will hold a maximum of 1024 characters
+                read_into_buf(command, buf);
                 if (!m_disk_name.empty()) {
                     fs_buff(buffer);
                 } else {
