@@ -34,6 +34,10 @@ void printBits(uint8_t byte) {
     printf("\n");
 }
 
+bool inRange(unsigned int low, unsigned int high, unsigned int x) {
+    return (low <= x && x <= high);
+}
+
 bool check_exists(string name, int current_dir) {
     bool exist = false;
     for (auto it = directory_map[current_dir].begin(); it != directory_map[current_dir].end(); ++it) {
@@ -156,7 +160,7 @@ int main(int argc, char *argv[]) {
         
         switch(command[0]) {
             case 'M': // Mount a disk
-                if (words.size() > 1) {
+                if (words.size() == 2) {
                     fs_mount(words[1].c_str());
                 } else {
                     cerr << "Command Error: " << input_file_name << ", "<< line_num << endl;
@@ -187,6 +191,19 @@ int main(int argc, char *argv[]) {
                      }
                     else{cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;}
                 } else {cerr << "Error: no file system is mounted" << endl;}
+                break;
+            case 'R': // Read From file case
+                if (!m_disk_name.empty()) {
+                    if (words.size() == 3) {
+                        char read_name[5];
+                        strcpy(read_name, words[1].c_str());
+                        fs_read(read_name, stoi(words[2]));
+                    } else {
+                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
+                    }
+                } else {
+                    cerr << "Error: no file system is mounted" << endl;
+                }
                 break;
             default:
                 cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
@@ -622,8 +639,34 @@ void recursive_delete(int idx, int cwd) {
 
 void fs_read(char name[5], int block_num) {
     // Read 1kb data into buffer
-    string n(name);
-    check_exists(n, cwd);
+    // Make sure there isnt duplicates in the cwd
+    char new_name[6] = {0,0,0,0,0,0};
+    transfer_char_to_char_array(new_name, name);
+    string n(new_name);
+    if (!check_exists(n, cwd)) { // This checks to see whatever we are looking for exists
+        cerr << "Error: File " << n << " does not exist"<< endl;
+    }
+    int idx = get_index_from_map_by_name(name, cwd);
+    int dir_parent_val = convertByteToDecimal(super_block.inode[idx].dir_parent, BYTE_SIZE);
+    if (dir_parent_val > 127) { // Check if what we are looking for is a directory
+        cerr << "Error: File " << n << " does not exist"<< endl;
+        return;
+    }
+
+    // Get the total blocks covered
+    int blocks_covered = convertByteToDecimal(super_block.inode[idx].used_size, BYTE_SIZE - 1);
+    if (!inRange(0,blocks_covered - 1, block_num)) {
+        cerr << "Error: File " << n << " does not have block "<< block_num <<endl;
+        return;
+    }
+    // Reading from the disk
+    disk.open(m_disk_name);
+    int start_block_idx = convertByteToDecimal(super_block.inode[idx].start_block, BYTE_SIZE);
+    disk.seekg(1024*start_block_idx + (block_num * 1024),ios_base::beg);
+    disk.read(buffer, 1024);
+    disk.close();
+
+
 }
 void fs_write(char name[5], int block_num) {
     // Put 1kn data in buffer to the specified block
