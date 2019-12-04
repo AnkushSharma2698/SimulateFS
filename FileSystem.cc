@@ -18,6 +18,7 @@ using namespace std;
 
 // GLOBAL VARIABLES
 Super_block super_block;
+char buffer[1024];
 fstream disk;
 string m_disk_name;
 map<int, set<int>> directory_map; // Holds the directories and anything that may currently exist in it
@@ -41,6 +42,9 @@ bool check_exists(string name, int current_dir) {
         string inode_name(name_array);
         if (inode_name.size() == 6) {
             inode_name.erase(5, 1);
+        }
+        if (name.size() == 6) {
+            name.erase(5, 1);
         }
         if (inode_name.compare(name) == 0) {
             exist = true;
@@ -134,6 +138,9 @@ int convertByteToDecimal(uint8_t n, int iterations){
 
 
 int main(int argc, char *argv[]) {
+    // Set buffer to 0
+    memset(buffer, 0, 1024);
+    // Holds the user
     string command;
     int line_num = 0;
     string input_file_name = "inputFile";
@@ -269,10 +276,11 @@ void fs_mount(const char *new_disk_name) {
         if (super_block.inode[i].used_size & (1 << 7)) {
             int idx;
             int dir_parent_val = convertByteToDecimal(super_block.inode[i].dir_parent, BYTE_SIZE);
+
             if (dir_parent_val > 127) {
                 idx = dir_parent_val - 128;
             } else {
-                idx = super_block.inode[i].dir_parent;
+                idx = dir_parent_val;
             }
             char name_array[6] = {0,0,0,0,0,0};
             get_name_from_inode(i, name_array);
