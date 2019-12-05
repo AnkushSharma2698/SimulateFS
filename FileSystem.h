@@ -16,6 +16,19 @@
 
 using namespace std;
 
+struct Inode_block {
+	int index;
+	int start_block;
+
+	Inode_block(int k, int s): index(k), start_block(s) {};
+};
+
+struct ascending_sb_order {
+	inline bool operator() (const Inode_block& inode_1, const Inode_block& inode_2) {
+		return (inode_1.start_block < inode_2.start_block);
+	}
+};
+
 typedef struct {
 	char name[5];        // Name of the file or directory (First 5 bytes)
 	char used_size;   // Inode state and the size of the file or directory

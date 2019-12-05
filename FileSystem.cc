@@ -11,6 +11,7 @@
 #include <cmath>
 #include <iterator>
 #include <set>
+#include <algorithm>
 // Headers to be included
 #include "FileSystem.h"
 
@@ -258,6 +259,13 @@ int main(int argc, char *argv[]) {
                     } else {
                         cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                     }
+                } else {
+                    cerr << "Error: no file system is mounted" << endl;
+                }
+                break;
+            case 'O':
+                if (!m_disk_name.empty()) {
+                    fs_defrag();
                 } else {
                     cerr << "Error: no file system is mounted" << endl;
                 }
@@ -532,6 +540,7 @@ void fs_create(char name[5], int size) {
         int count = 0;
         start_block = 10000;
         int consecutive_blocks = 0;
+
         for (unsigned int i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
             uint8_t mask = 1<<7; 
             while (mask) {
@@ -1086,10 +1095,84 @@ void fs_resize(char name[5], int new_size) {
         disk.close();
     }
 }
+
 void fs_defrag(void) {
-    // Organize contentes of all files in ffd
-    // Put all small peices of available blocks together so they are continuous
-    // Maintain the order of files even after the defrag
+    vector<Inode_block> sorted_inodes;
+    for (int i = 0; i < INODE_NUM; i++) {
+        if (super_block.inode[i].used_size & (1<<7)) { // Inode is in use
+            int start = convertByteToDecimal(super_block.inode[i].start_block, BYTE_SIZE);
+            sorted_inodes.push_back(Inode_block(i, start));
+        }
+    }
+    // Sorted the inodes based on start block
+    sort(sorted_inodes.begin(),sorted_inodes.end(), ascending_sb_order());
+    cout << "Sorted inode size:" << sorted_inodes.size() << endl;
+    // Iterate the sorted inodes until they are empty
+    unsigned int position = 1;
+    disk.open(m_disk_name);
+    for (unsigned int i = 0; i < sorted_inodes.size(); i++) {
+        int blocks_covered = convertByteToDecimal(super_block.inode[sorted_inodes[i].index].used_size, BYTE_SIZE - 1);
+        if ( (unsigned int)sorted_inodes[i].start_block != position) {
+            // Have to move this back and copy over the values
+            unsigned int new_start_block = position;
+            char data[1024];
+            for (int j = 0; j < blocks_covered; j++) {
+                // Write to the new blocks
+                disk.seekg(1024 * sorted_inodes[i].start_block + i, ios_base::beg);
+                disk.read(data, 1024);
+                disk.seekp(1024 * position, ios_base::beg);
+                disk.write(data, 1024);
+                // Set the free block list position
+                int mask = 1<<7;
+                int start_index = position / 8; // Which index to start on in the FBL
+                int mask_offset = position - (start_index * 8);
+                mask >>=mask_offset;
+                super_block.free_block_list[sorted_inodes[i].index] |= mask; // Set the bit we are looking at to 1
+                ++position;
+            }
+            // Update the inode start position
+            super_block.inode[sorted_inodes[i].index].start_block = new_start_block;
+            // Overwrite the inodes and super_block in memeory
+            // Copy the blocks from block start_block to end of this block to position
+            // Set the position to the end of the inode
+        } else  {
+            position = position + blocks_covered;
+        }
+    }
+
+    // Delete all the blocks from position to end
+    char deletion_buf[1024];
+    memset(deletion_buf, 0 , 1024);
+    disk.seekp(1024 * position, ios_base::beg); // Get to the current position
+    for (int i = position; i < 128; i++) {
+        disk.write(deletion_buf, 1024);
+    }
+    // set bits to 0 after the last position
+    int start_index = position / 8; // Which index to start on in the FBL
+    cout << "the start position: " << position << endl;
+    cout << "the start index: "  << start_index <<  endl;
+    int mask_offset = position - (start_index * 8);
+    for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
+        uint8_t mask = 1<<7; 
+        if ((int)i == start_index) {
+            mask >>=mask_offset;
+        }
+        while (mask) {
+            super_block.free_block_list[i] ^= mask;
+            mask>>=1;
+        }
+    }
+    // Overwrite the FBL and all of the inodes in memory
+    disk.write(super_block.free_block_list, FREE_SPACE_LIST);
+    // Write the rest of the inodes into memory into the inode list
+	for (uint8_t i = 0; i < INODE_NUM; i++) {
+		disk.write(super_block.inode[i].name, 5); // Read the name into mem
+		disk.write((char*)&super_block.inode[i].used_size, 1);
+		disk.write((char*)&super_block.inode[i].start_block, 1);
+		disk.write((char*)&super_block.inode[i].dir_parent, 1);
+	}
+    disk.close();
+
 }
 void fs_cd(char name[5]) {
     // Same as the terminal to change the current working directory
