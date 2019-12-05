@@ -879,8 +879,46 @@ void fs_resize(char name[5], int new_size) {
             // Allocate the memory to this by adding a bit more space to the used_size of the inode
         } else { // Does not have contiguous space to add to end, so we search for it
             // Loop through the fbl to find consecutive blocks of new_size that are free
-            
-        }
+            int count = 0;
+            start_block = 10000;
+            int consecutive_blocks = 0;
+            for (unsigned int i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
+                uint8_t mask = 1<<7; 
+                while (mask) {
+                    if (i == 0 && (mask == 128))  { // Checking if we are looking at the super block
+                        count++;
+                        mask >>= 1;
+                        continue;
+                    }
+                    if (super_block.free_block_list[i] & mask) { // This block is in is use
+                        consecutive_blocks = 0;
+                    } else {
+                        consecutive_blocks++;
+                        if (consecutive_blocks == new_size) {
+                            start_block = count - consecutive_blocks + 1;
+                            break;
+                        }
+                    }
+                    count++;
+                    mask >>=1;
+                }
+                if (start_block != 10000) {
+                    break;
+                }
+            }
+
+            if (start_block == 10000) {
+                // Remove the name from the map too
+                // We did not find the consective blocks we wanted to
+                cerr << "Cannot allocate " << new_size << " on " << m_disk_name << endl;
+                return;
+            }
+
+            // Allocate size to the block from its new start block
+            cout << "Can allocate space to this file in a new spot" << endl;
+            cout << "New start block is" << start_block << endl;
+                
+        }   
     } else {
         // TODO:  ===========Less than case =============
     }
