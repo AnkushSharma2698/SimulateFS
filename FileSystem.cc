@@ -847,7 +847,7 @@ void fs_resize(char name[5], int new_size) {
         int start_index = iteration_block_start / 8; // Which index to start on in the FBL
         cout << "The start block of " << n <<  " is " << iteration_block_start << endl;
         cout << "The start index of " << n <<  " is " << start_index << endl;
-        int mask_offset = start_block - (start_index * 8);
+        int mask_offset = iteration_block_start - (start_index * 8);
         for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
             uint8_t mask = 1<<7; 
             if ((int)i == start_index) {
@@ -878,11 +878,47 @@ void fs_resize(char name[5], int new_size) {
         // Check if it has free space available contiguosly
         if (has_free_space) {
             // Allocate the memory to this by adding a bit more space to the used_size of the inode
+            disk.open(m_disk_name);
+            //Update the fbl and the inode, these blocks are already free so we dont need to worry about overwriting anything
+            // Update the free space list
+            int block_count = 0;
+            int blocks_to_add = new_size - blocks_covered;
+            int block_to_start_at = start_block + new_size - blocks_to_add; 
+            int start_index = (block_to_start_at) / 8; // Which index to start on in the FBL
+            int mask_offset = (block_to_start_at) - (start_index * 8);
+            for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
+                uint8_t mask = 1<<7; 
+                if ((int)i == start_index) {
+                    mask >>=mask_offset;
+                }
+                while (mask) {
+                    if (block_count == blocks_to_add) {
+                        break;
+                    }
+                    super_block.free_block_list[i] |= mask;
+                    block_count++;
+                    mask>>=1;
+                }
+                if (block_count == blocks_to_add) {
+                    break;
+                }
+            }
+            disk.seekp(0, ios_base::beg);
+            disk.write(super_block.free_block_list, FREE_SPACE_LIST);
+            // Update the inode
+            super_block.inode[idx].used_size = 128 | new_size; // Set SIZE
+            for (uint8_t i = 0; i < INODE_NUM; i++) {
+                disk.write(super_block.inode[i].name, 5); // Read the name into mem
+                disk.write((char*)&super_block.inode[i].used_size, 1);
+                disk.write((char*)&super_block.inode[i].start_block, 1);
+                disk.write((char*)&super_block.inode[i].dir_parent, 1);
+            }
+            disk.close();
             
-        } else { // Does not have contiguous space to add to end, so we search for it
+        } else { // Does not have contiguous space to add to end, so we search for it through the whole space
             // Loop through the fbl to find consecutive blocks of new_size that are free
             int count = 0;
-            start_block = 10000;
+            int new_start_block = 10000;
             int consecutive_blocks = 0;
             for (unsigned int i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
                 uint8_t mask = 1<<7; 
@@ -897,29 +933,107 @@ void fs_resize(char name[5], int new_size) {
                     } else {
                         consecutive_blocks++;
                         if (consecutive_blocks == new_size) {
-                            start_block = count - consecutive_blocks + 1;
+                            new_start_block = count - consecutive_blocks + 1;
                             break;
                         }
                     }
                     count++;
                     mask >>=1;
                 }
-                if (start_block != 10000) {
+                if (new_start_block != 10000) {
                     break;
                 }
             }
 
-            if (start_block == 10000) {
+            if (new_start_block == 10000) {
                 // Remove the name from the map too
                 // We did not find the consective blocks we wanted to
-                cerr << "Cannot allocate " << new_size << " on " << m_disk_name << endl;
+                cerr << "Error: File " << n << " cannot expand to size " << new_size << endl;
                 return;
             }
 
             // Allocate size to the block from its new start block
+            // manipulate the free space list
+            
             cout << "Can allocate space to this file in a new spot" << endl;
-            cout << "New start block is" << start_block << endl;
-                
+            cout << "New start block is" << new_start_block << endl;
+            disk.open(m_disk_name);
+            
+            // Copy the blocks over to the new area
+            for(int i = 0; i < blocks_covered; i++) {
+                char data[1024];
+                char empty[1024];
+                memset(empty, 0, 1024);
+                // Old block
+                disk.seekg(1024 * start_block + (1024 * i), ios_base::beg); // Move read ptr to the current block
+                disk.read(data, 1024); // Read data from curr block into data array
+                disk.seekp(1024 * start_block + (1024 * i), ios_base::beg); // Move write ptr to current block
+                disk.write(empty, 1024);
+                // seek out the new block
+                disk.seekp(1024 * new_start_block + (1024 * i), ios_base::beg);
+                disk.write(data, 1024);
+            }
+
+            // Update the fbl bits
+            // 1. clear the old bits
+            int block_count = 0;
+            int index_to_start_deletion = start_block;
+            int start_index = (index_to_start_deletion) / 8; // Which index to start on in the FBL
+            int mask_offset = (index_to_start_deletion) - (start_index * 8);
+            for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
+                uint8_t mask = 1<<7; 
+                if ((int)i == start_index) {
+                    mask >>=mask_offset;
+                }
+                while (mask) {
+                    if (block_count == blocks_covered) {
+                        break;
+                    }
+                    super_block.free_block_list[i] ^= mask;
+                    block_count++;
+                    mask>>=1;
+                }
+                if (block_count == blocks_covered) {
+                    break;
+                }
+            }
+            // 2. Update the new bits
+            block_count = 0;
+            int index_to_start_addition = new_start_block;
+            start_index = (index_to_start_addition) / 8; // Which index to start on in the FBL
+            mask_offset = (index_to_start_addition) - (start_index * 8);
+            for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
+                uint8_t mask = 1<<7; 
+                if ((int)i == start_index) {
+                    mask >>=mask_offset;
+                }
+                while (mask) {
+                    if (block_count == new_size) {
+                        break;
+                    }
+                    super_block.free_block_list[i] |= mask;
+                    block_count++;
+                    mask>>=1;
+                }
+                if (block_count == new_size) {
+                    break;
+                }
+            }
+            // Write the fbl and the inode
+            disk.seekp(0, ios_base::beg);
+            disk.write(super_block.free_block_list, FREE_SPACE_LIST);
+            
+            // Update the inode with the new size
+            super_block.inode[idx].start_block = new_start_block;
+            super_block.inode[idx].used_size = 128 | new_size;
+
+            for (uint8_t i = 0; i < INODE_NUM; i++) {
+                disk.write(super_block.inode[i].name, 5); // Read the name into mem
+                disk.write((char*)&super_block.inode[i].used_size, 1);
+                disk.write((char*)&super_block.inode[i].start_block, 1);
+                disk.write((char*)&super_block.inode[i].dir_parent, 1);
+            }
+            disk.close();
         }   
     } else if (new_size < blocks_covered){
         //  ===========Less than case ============= // 
@@ -938,8 +1052,9 @@ void fs_resize(char name[5], int new_size) {
         }
         // Update the free space list
         int block_count = 0;
-        int start_index = (new_size + 1) / 8; // Which index to start on in the FBL
-        int mask_offset = (new_size + 1) - (start_index * 8);
+        int index_to_start_deletion = (start_block + blocks_covered) - blocks_to_zero;
+        int start_index = (index_to_start_deletion) / 8; // Which index to start on in the FBL
+        int mask_offset = (index_to_start_deletion) - (start_index * 8);
         for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
             uint8_t mask = 1<<7; 
             if ((int)i == start_index) {
@@ -968,15 +1083,8 @@ void fs_resize(char name[5], int new_size) {
             disk.write((char*)&super_block.inode[i].start_block, 1);
             disk.write((char*)&super_block.inode[i].dir_parent, 1);
 	    }
-        
         disk.close();
     }
-    // because we assume we give the size of file.
-    // Need to call function so we can change the size of file
-    //case 1 : new size is greater than prev
-    //      Want to add blocks at end, but there may be cases where we cannot do that, in this case we have to move them into a new space that can fit this
-    //      If we shift, we have to clean up everything in those positions
-    // case 2 : new size is less than prev
 }
 void fs_defrag(void) {
     // Organize contentes of all files in ffd
