@@ -839,6 +839,7 @@ void fs_resize(char name[5], int new_size) {
     int start_block = convertByteToDecimal(super_block.inode[idx].start_block, BYTE_SIZE);
     int iteration_block_start = start_block + blocks_covered; // This the block that is currently not in use after the last used block 
     if (new_size > blocks_covered) {
+        // Greater than case
         int consecutive_blocks = 0;
         int needed_blocks = new_size - blocks_covered;
         bool has_free_space = true;
@@ -877,6 +878,7 @@ void fs_resize(char name[5], int new_size) {
         // Check if it has free space available contiguosly
         if (has_free_space) {
             // Allocate the memory to this by adding a bit more space to the used_size of the inode
+            
         } else { // Does not have contiguous space to add to end, so we search for it
             // Loop through the fbl to find consecutive blocks of new_size that are free
             int count = 0;
@@ -919,8 +921,55 @@ void fs_resize(char name[5], int new_size) {
             cout << "New start block is" << start_block << endl;
                 
         }   
-    } else {
-        // TODO:  ===========Less than case =============
+    } else if (new_size < blocks_covered){
+        //  ===========Less than case ============= // 
+        cout << "in the less than case" << endl;
+        // Zero out the specified blocks
+        disk.open(m_disk_name);
+        // How many blocks we need to zero out
+        int blocks_to_zero = blocks_covered - new_size;
+        // Seek out the blocks to be zeroed out
+        disk.seekp(1024*start_block + (new_size * 1024), ios_base::beg);
+        char one_block[1024];
+        memset(one_block, 0, 1024);
+        // Overwrite the blocks
+        for (int i = 0; i < blocks_to_zero; i++) {
+            disk.write(one_block, 1024);
+        }
+        // Update the free space list
+        int block_count = 0;
+        int start_index = (new_size + 1) / 8; // Which index to start on in the FBL
+        int mask_offset = (new_size + 1) - (start_index * 8);
+        for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
+            uint8_t mask = 1<<7; 
+            if ((int)i == start_index) {
+                mask >>=mask_offset;
+            }
+            while (mask) {
+                if (block_count == blocks_to_zero) {
+                    break;
+                }
+                super_block.free_block_list[i] ^= mask;
+                block_count++;
+                mask>>=1;
+            }
+            if (block_count == blocks_to_zero) {
+                break;
+            }
+        }
+        disk.seekp(0, ios_base::beg);
+        disk.write(super_block.free_block_list, FREE_SPACE_LIST);
+        // Update the used size of inode
+         // Manipulate the inode
+        super_block.inode[idx].used_size = 128 | new_size; // Set SIZE
+        for (uint8_t i = 0; i < INODE_NUM; i++) {
+            disk.write(super_block.inode[i].name, 5); // Read the name into mem
+            disk.write((char*)&super_block.inode[i].used_size, 1);
+            disk.write((char*)&super_block.inode[i].start_block, 1);
+            disk.write((char*)&super_block.inode[i].dir_parent, 1);
+	    }
+        
+        disk.close();
     }
     // because we assume we give the size of file.
     // Need to call function so we can change the size of file
