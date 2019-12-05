@@ -44,3 +44,5 @@ void check_map_vs_inodes(map<int, int> &block_map);
 void error_repr(int error_code, const char * new_disk_name);
 void recursive_delete(int idx, int cwd);
 void get_name_from_inode(int index, char * name_array);
+int number_items_in_dir(int directory_idx);
+int get_size_of_file(int file_idx);

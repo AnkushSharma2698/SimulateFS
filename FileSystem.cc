@@ -96,13 +96,17 @@ void transfer_char_to_char_array(char * output_array, char * input_array) {
 }
 
 void read_into_buf(string cmd, char * buf) {
-    cout << "The command: " << cmd << endl;
     memset(buf, '\0', 1024);
-    for (auto it = cmd.begin() + 2; it!=cmd.end(); ++it) {
-
-        cout << "value:" <<*it;
+    // Find B First
+    string::iterator initial_it = cmd.begin();
+    while (*initial_it != 'B') {
+        ++initial_it;
     }
-    cout << endl;
+    int count = 0; // Make sure no more than 1024 chars
+    for (auto it = initial_it + 2; it!=cmd.end() && count != 1024; ++it) {
+        buf[count] = *it;
+        count++;
+    }
     // Set the whole buffer to 0;
 }
 
@@ -231,9 +235,29 @@ int main(int argc, char *argv[]) {
             case 'B':
                 // Special Parsing
                 char buf[1024]; // This will hold a maximum of 1024 characters
-                read_into_buf(command, buf);
                 if (!m_disk_name.empty()) {
-                    fs_buff(buffer);
+                    read_into_buf(command, buf);
+                    fs_buff(buf);
+                } else {
+                    cerr << "Error: no file system is mounted" << endl;
+                }
+                break;
+            case 'L':
+                if (!m_disk_name.empty()) {
+                    fs_ls();
+                } else {
+                     cerr << "Error: no file system is mounted" << endl;
+                }
+                break;
+            case 'E':
+                if (!m_disk_name.empty()) {
+                    if (words.size() == 3) {
+                        char resize_name[5];
+                        strcpy(resize_name, words[1].c_str());
+                        fs_resize(resize_name, stoi(words[2]));
+                    } else {
+                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
+                    }
                 } else {
                     cerr << "Error: no file system is mounted" << endl;
                 }
@@ -678,6 +702,7 @@ void fs_read(char name[5], int block_num) {
     string n(new_name);
     if (!check_exists(n, cwd)) { // This checks to see whatever we are looking for exists
         cerr << "Error: File " << n << " does not exist"<< endl;
+        return;
     }
     int idx = get_index_from_map_by_name(name, cwd);
     int dir_parent_val = convertByteToDecimal(super_block.inode[idx].dir_parent, BYTE_SIZE);
@@ -709,6 +734,7 @@ void fs_write(char name[5], int block_num) {
 
     if (!check_exists(n, cwd)) { // This checks to see whatever we are looking for exists
         cerr << "Error: File " << n << " does not exist"<< endl;
+        return;
     }
     int idx = get_index_from_map_by_name(name, cwd);
     int dir_parent_val = convertByteToDecimal(super_block.inode[idx].dir_parent, BYTE_SIZE);
@@ -734,13 +760,130 @@ void fs_write(char name[5], int block_num) {
 }
 void fs_buff(char buff[1024]) {
     // put user input to buffer
-    cout << "Updating the buffer" << endl;
+    for (int i = 0; i < 1024; i++) {
+        buffer[i] = 0;
+        buffer[i] = buff[i];
+    }
 }
 void fs_ls(void) {
+    uint8_t idx_mask = 127;
+    int num_cwd_items;
+    int num_parent_dir_items;
     // ls should just list the files
-    // Cant call the unix file ls. Wanna list ffd stuff only
+    num_cwd_items = number_items_in_dir(cwd) + 2;
+    if (cwd == 127) {
+        num_parent_dir_items = number_items_in_dir(cwd) + 2;
+    } else {
+        // TODO: Get parent dir of this inode
+        int idx_parent = super_block.inode[cwd].dir_parent & idx_mask;
+        num_parent_dir_items = number_items_in_dir(idx_parent) + 2;
+    }
+
+    cout << "." << "         " << num_cwd_items << endl; // 8 spaces
+    cout << ".." << "        "<< num_parent_dir_items << endl; // 7 spaces
+    for (auto it = directory_map[cwd].begin(); it != directory_map[cwd].end(); ++it) {
+        char name_array[6] = {0,0,0,0,0,0};
+        get_name_from_inode(*it, name_array);
+        string inode_name(name_array);
+        int offset;
+        if (inode_name.size() == 6) {
+            offset = 5;
+        } else {
+            offset = 10 - inode_name.size();
+        }   
+        int dir_parent_val = convertByteToDecimal(super_block.inode[*it].dir_parent, BYTE_SIZE);
+        if (dir_parent_val < 128) { // We are looking at a file
+            int file_size = get_size_of_file(*it);
+            inode_name.append("          ", offset);
+            cout << inode_name << file_size << " KB" << endl;
+        } else { // directory
+            int dir_count = number_items_in_dir(*it) + 2;
+            inode_name.append("          ", offset);
+            cout << inode_name << dir_count << endl;
+        }
+    }
 }
+
+// LS Helpers
+int number_items_in_dir(int directory_idx) {
+    int count = 0;
+     for (auto it = directory_map[directory_idx].begin(); it != directory_map[directory_idx].end(); ++it) {
+        ++count;
+     }
+     return count;
+}
+
+// LS HELPER
+int get_size_of_file(int file_idx) {
+    int blocks_covered = convertByteToDecimal(super_block.inode[file_idx].used_size, BYTE_SIZE - 1);
+    return blocks_covered;
+}
+
 void fs_resize(char name[5], int new_size) {
+    char new_name[6] = {0,0,0,0,0,0};
+    transfer_char_to_char_array(new_name, name);
+    string n(new_name);
+    if (!check_exists(n, cwd)) { // This checks to see whatever we are looking for exists
+        cerr << "Error: File " << n << " does not exist"<< endl;
+        return;
+    }
+    int idx = get_index_from_map_by_name(name, cwd);
+    int dir_parent_val = convertByteToDecimal(super_block.inode[idx].dir_parent, BYTE_SIZE);
+    if (dir_parent_val > 127) { // Check if what we are looking for is a directory
+        cerr << "Error: File " << n << " does not exist"<< endl;
+        return;
+    }
+
+    // ON TO THE RESIZE CODE
+    int blocks_covered = convertByteToDecimal(super_block.inode[idx].used_size, BYTE_SIZE - 1);
+    int start_block = convertByteToDecimal(super_block.inode[idx].start_block, BYTE_SIZE);
+    int iteration_block_start = start_block + blocks_covered; // This the block that is currently not in use after the last used block 
+    if (new_size > blocks_covered) {
+        int consecutive_blocks = 0;
+        int needed_blocks = new_size - blocks_covered;
+        bool has_free_space = true;
+        // int count = 0;
+        int start_index = iteration_block_start / 8; // Which index to start on in the FBL
+        cout << "The start block of " << n <<  " is " << iteration_block_start << endl;
+        cout << "The start index of " << n <<  " is " << start_index << endl;
+        int mask_offset = start_block - (start_index * 8);
+        for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
+            uint8_t mask = 1<<7; 
+            if ((int)i == start_index) {
+                mask >>=mask_offset;
+            }
+            while (mask) {
+                if (super_block.free_block_list[i] & mask) { // This block is in is use
+                    consecutive_blocks = 0;
+                    has_free_space = false;
+                    break;
+                } else {
+                    consecutive_blocks++;
+                    if (consecutive_blocks == needed_blocks) {
+                        break;
+                    }
+                }
+                mask >>=1;
+            }
+            if (consecutive_blocks == needed_blocks) {
+                cout << "has enough space to expand" << endl;
+                break;
+            }
+            if (!has_free_space) {
+                cout << "does not have enough space" << endl;
+                break;
+            }
+        }
+        // Check if it has free space available contiguosly
+        if (has_free_space) {
+            // Allocate the memory to this by adding a bit more space to the used_size of the inode
+        } else { // Does not have contiguous space to add to end, so we search for it
+            // Loop through the fbl to find consecutive blocks of new_size that are free
+            
+        }
+    } else {
+        // TODO:  ===========Less than case =============
+    }
     // because we assume we give the size of file.
     // Need to call function so we can change the size of file
     //case 1 : new size is greater than prev
