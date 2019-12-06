@@ -182,85 +182,96 @@ int main(int argc, char *argv[]) {
                 }
                 break;
             case 'C': // Create file or directory
-                if (!m_disk_name.empty()) {
+                if (words.size() < 3) {
+                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
+                }else if (stoi(words[2]) > 127) {
+                    cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
+                }
+                else if (words[1].size() > 5) {
+                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
+                } else {
+                    if (!m_disk_name.empty()) {
                     // Maybe do some error handling here in case we get bad input
-                    if (words.size() < 3) {
-                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
-                    }else if (words[1].size() > 5) {
-                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
-                    } else {
                         char name[5];
                         strcpy(name, words[1].c_str());
                         fs_create(name, stoi(words[2]));
+                    } else {
+                        cerr << "Error: no file system is mounted" << endl;
                     }
-                } else {
-                    cerr << "Error: no file system is mounted" << endl;
                 }
                 break;
             case 'D': // Deletion Case
-                if (!m_disk_name.empty()) {
-                    if (words.size() > 1) {
-                        char delete_name[5];
-                        strcpy(delete_name, words[1].c_str());
-                        fs_delete(delete_name);
-                     }
-                    else{cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;}
-                } else {cerr << "Error: no file system is mounted" << endl;}
+                if (words.size() == 2 && words[1].length() <= 5) {
+                    if (!m_disk_name.empty()) {
+                    char delete_name[5];
+                    strcpy(delete_name, words[1].c_str());
+                    fs_delete(delete_name);
+                    } else {cerr << "Error: no file system is mounted" << endl;}
+                }
+                else{cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;}
                 break;
             case 'R': // Read From file case
-                if (!m_disk_name.empty()) {
-                    if (words.size() == 3) {
+                if (words.size() == 3) {
+                    if (!m_disk_name.empty()) {
                         char read_name[5];
                         strcpy(read_name, words[1].c_str());
                         fs_read(read_name, stoi(words[2]));
                     } else {
-                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
+                        cerr << "Error: no file system is mounted" << endl;
                     }
                 } else {
-                    cerr << "Error: no file system is mounted" << endl;
+                    cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                 }
                 break;
             case 'W': // Writing to file from buffer
-                if (!m_disk_name.empty()) {
-                    if (words.size() == 3) {
+                if (words.size() == 3) {
+                    if (!m_disk_name.empty()) {
                         char write_name[5];
                         strcpy(write_name, words[1].c_str());
                         fs_write(write_name, stoi(words[2]));
                     } else {
-                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
-                    }
+                        cerr << "Error: no file system is mounted" << endl;
+                    }       
                 } else {
-                    cerr << "Error: no file system is mounted" << endl;
+                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                 }
                 break;
             case 'B':
                 // Special Parsing
-                char buf[1024]; // This will hold a maximum of 1024 characters
-                if (!m_disk_name.empty()) {
+                if (words.size() > 1) {
+                    if (!m_disk_name.empty()) {
+                    char buf[1024]; // This will hold a maximum of 1024 characters
                     read_into_buf(command, buf);
                     fs_buff(buf);
+                    } else {
+                        cerr << "Error: no file system is mounted" << endl;
+                    }
                 } else {
-                    cerr << "Error: no file system is mounted" << endl;
+                    cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                 }
                 break;
             case 'L':
-                if (!m_disk_name.empty()) {
-                    fs_ls();
+                if (words.size() == 1) {
+                    if (!m_disk_name.empty()) {
+                        fs_ls();
+                    } else {
+                        cerr << "Error: no file system is mounted" << endl;
+                    }
                 } else {
-                     cerr << "Error: no file system is mounted" << endl;
+                    cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                 }
                 break;
             case 'E':
-                if (!m_disk_name.empty()) {
-                    if (words.size() == 3) {
-                        char resize_name[5];
-                        strcpy(resize_name, words[1].c_str());
-                        fs_resize(resize_name, stoi(words[2]));
-                    } else {
-                        cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
-                    }
+                if (words.size() == 3 && words[1].length() <=5) {
+                    if (!m_disk_name.empty()) {
+                    char resize_name[5];
+                    strcpy(resize_name, words[1].c_str());
+                    fs_resize(resize_name, stoi(words[2]));
                 } else {
                     cerr << "Error: no file system is mounted" << endl;
+                }       
+                } else {
+                    cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                 }
                 break;
             case 'O':
@@ -271,7 +282,7 @@ int main(int argc, char *argv[]) {
                 }
                 break;
             case 'Y' :
-                if (words[1].size() > 5) {
+                if (words.size() != 2 || words[1].size() > 5) {
                     cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                 } else {
                     if (!m_disk_name.empty()) {
@@ -581,7 +592,7 @@ void fs_create(char name[5], int size) {
         if (start_block == 10000) {
             // Remove the name from the map too
             // We did not find the consective blocks we wanted to
-            cerr << "Cannot allocate " << size << " on " << m_disk_name << endl;
+            cerr << "Error: Cannot allocate " << size << " on " << m_disk_name << endl;
             return;
         }
 
@@ -739,7 +750,7 @@ void fs_read(char name[5], int block_num) {
     // Get the total blocks covered
     int blocks_covered = convertByteToDecimal(super_block.inode[idx].used_size, BYTE_SIZE - 1);
     if (!inRange(0,blocks_covered - 1, block_num)) {
-        cerr << "Error: File " << n << " does not have block "<< block_num <<endl;
+        cerr << "Error: " << n << " does not have block "<< block_num <<endl;
         return;
     }
     // Reading from the disk
@@ -871,8 +882,6 @@ void fs_resize(char name[5], int new_size) {
         bool has_free_space = true;
         // int count = 0;
         int start_index = iteration_block_start / 8; // Which index to start on in the FBL
-        cout << "The start block of " << n <<  " is " << iteration_block_start << endl;
-        cout << "The start index of " << n <<  " is " << start_index << endl;
         int mask_offset = iteration_block_start - (start_index * 8);
         for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
             uint8_t mask = 1<<7; 
@@ -893,11 +902,9 @@ void fs_resize(char name[5], int new_size) {
                 mask >>=1;
             }
             if (consecutive_blocks == needed_blocks) {
-                cout << "has enough space to expand" << endl;
                 break;
             }
             if (!has_free_space) {
-                cout << "does not have enough space" << endl;
                 break;
             }
         }
@@ -980,9 +987,6 @@ void fs_resize(char name[5], int new_size) {
 
             // Allocate size to the block from its new start block
             // manipulate the free space list
-            
-            cout << "Can allocate space to this file in a new spot" << endl;
-            cout << "New start block is" << new_start_block << endl;
             disk.open(m_disk_name);
             
             // Copy the blocks over to the new area
@@ -1063,7 +1067,6 @@ void fs_resize(char name[5], int new_size) {
         }   
     } else if (new_size < blocks_covered){
         //  ===========Less than case ============= // 
-        cout << "in the less than case" << endl;
         // Zero out the specified blocks
         disk.open(m_disk_name);
         // How many blocks we need to zero out
@@ -1227,47 +1230,23 @@ void fs_cd(char name[5]) {
     transfer_char_to_char_array(new_name, name);
     string n(new_name);
     if (n.compare(".") == 0) {
-        if (cwd == 127) {
-            cwd = 127;
-            cout << "In dir: root" << endl;
-        } else {
-            char name_array[6] = {0,0,0,0,0,0};
-            cwd = get_parent_directory(cwd);
-            get_name_from_inode(cwd, name_array);
-            cout << "In dir1:" << name_array << endl;  
-        } 
+        cout << "stay in cwd: " << cwd << endl;
         return;
     }
     if (n.compare("..") == 0) {
-        // (cwd == 127)? cwd = 127: cwd = get_parent_directory(get_parent_directory(cwd));
-        if (cwd == 127) {
-            cwd = 127;
-            cout << "In dir: root" << endl;
-        } else {
-            char name_array[6] = {0,0,0,0,0,0};
-            cout << "CWD: " << cwd << endl;
-            cwd = get_parent_directory(get_parent_directory(cwd));
-            get_name_from_inode(cwd, name_array);
-            cout << "In dir:" << name_array << endl; 
-        }
+        cwd = get_parent_directory(cwd);
         return;
     }
 
     // Asumming the entered text is not . or  .. 
     if (!check_exists(n, cwd)) {
         cerr << "Error: Directory " << n << " does not exist" << endl;
+        return;
     }
     int idx = get_index_from_map_by_name(n, cwd);
     if (!check_directory(idx, cwd)) {
         cerr << "Error: Directory " << n << " does not exist" << endl;
+        return;
     }
     cwd = idx;
-    if (cwd != 127) {
-        char name_array[6] = {0,0,0,0,0,0};
-        get_name_from_inode(cwd, name_array);
-        cout << "In dir2:" << name_array << endl;
-            
-    } else {
-        cout << "In dir: root" << endl;
-    }
 }
