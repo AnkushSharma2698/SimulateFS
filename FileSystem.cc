@@ -1119,7 +1119,7 @@ void fs_defrag(void) {
             for (int j = 0; j < blocks_covered; j++) {
                 // Loop through each block
                 // =====Copying blocks ======//
-                disk.seekg(1024 * start_blk + (1024 * j), ios_base::beg);
+                disk.seekg(1024 * (start_blk + j), ios_base::beg);
                 disk.read(data, 1024);
                 disk.seekp(1024 * position, ios_base::beg);
                 disk.write(data, 1024);
@@ -1165,19 +1165,6 @@ void fs_defrag(void) {
                 break;
             }
         }
-    }
-
-    for (int i = 0; i < FREE_SPACE_LIST; i++) {
-        uint8_t mask = 1<< 7;
-        while(mask)  {
-            if (super_block.free_block_list[i] & mask) {
-                cout << '1';
-            } else {
-                cout << "0";
-            }
-            mask >>=1;
-        }
-        cout << endl;
     }
     // ====== ZERO OUT ALL DATA BLOCKS AFTER POSITION =========== //
     char deletion_buf[1024];
