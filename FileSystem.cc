@@ -648,12 +648,22 @@ void fs_delete(char name[5]) {
     int inode_idx = get_index_from_map_by_name(n, cwd);
     disk.open(m_disk_name);
     recursive_delete(inode_idx, cwd);
+    //Writing super block into mem
+    disk.seekp(0, ios_base::beg);
+    disk.write(super_block.free_block_list, FREE_SPACE_LIST);
+    for (uint8_t i = 0; i < INODE_NUM; i++) {
+                disk.write(super_block.inode[i].name, 5); // Read the name into mem
+                disk.write((char*)&super_block.inode[i].used_size, 1);
+                disk.write((char*)&super_block.inode[i].start_block, 1);
+                disk.write((char*)&super_block.inode[i].dir_parent, 1);
+    }
     disk.close();
 }
 
 void recursive_delete(int idx, int cwd) {
     // If directory
-    if (!(super_block.inode[idx].dir_parent < 128)) {
+    int dir_parent_val = convertByteToDecimal(super_block.inode[idx].dir_parent, BYTE_SIZE);
+    if (!(dir_parent_val < 128)) {
         for (auto it = directory_map[idx].begin(); it != directory_map[idx].end(); ++it) {
             recursive_delete(*it, idx);
         }
@@ -691,13 +701,7 @@ void recursive_delete(int idx, int cwd) {
             break;
         }
     }
-    //Writing super block into mem
-    disk.write(super_block.free_block_list, FREE_SPACE_LIST);
-    // Zero out the corresponding inode in memory
-    disk.seekp(FREE_SPACE_LIST + (idx * 8), ios_base::beg);
-    disk.write("\0\0\0\0\0\0\0\0", 8);
 
-    
     // Erase from the actual blocks
     if (start_block != 0) { // This means we are looking at a file
         char one_block[1024];
@@ -1209,7 +1213,12 @@ bool check_directory(int i, int current_dir) {
 }
 
 int get_parent_directory(int inode_index) {
-    int dir_parent_val =  convertByteToDecimal(super_block.inode[inode_index].dir_parent, BYTE_SIZE - 1);
+    int dir_parent_val;
+    if (inode_index == 127) {
+        dir_parent_val = 127;
+    } else {
+        dir_parent_val =  convertByteToDecimal(super_block.inode[inode_index].dir_parent, BYTE_SIZE - 1);
+    }
     return dir_parent_val;
 }
 
@@ -1225,7 +1234,7 @@ void fs_cd(char name[5]) {
             char name_array[6] = {0,0,0,0,0,0};
             cwd = get_parent_directory(cwd);
             get_name_from_inode(cwd, name_array);
-            cout << "In dir:" << name_array << endl;  
+            cout << "In dir1:" << name_array << endl;  
         } 
         return;
     }
@@ -1236,6 +1245,7 @@ void fs_cd(char name[5]) {
             cout << "In dir: root" << endl;
         } else {
             char name_array[6] = {0,0,0,0,0,0};
+            cout << "CWD: " << cwd << endl;
             cwd = get_parent_directory(get_parent_directory(cwd));
             get_name_from_inode(cwd, name_array);
             cout << "In dir:" << name_array << endl; 
@@ -1255,7 +1265,7 @@ void fs_cd(char name[5]) {
     if (cwd != 127) {
         char name_array[6] = {0,0,0,0,0,0};
         get_name_from_inode(cwd, name_array);
-        cout << "In dir:" << name_array << endl;
+        cout << "In dir2:" << name_array << endl;
             
     } else {
         cout << "In dir: root" << endl;
