@@ -270,6 +270,19 @@ int main(int argc, char *argv[]) {
                     cerr << "Error: no file system is mounted" << endl;
                 }
                 break;
+            case 'Y' :
+                if (words[1].size() > 5) {
+                    cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
+                } else {
+                    if (!m_disk_name.empty()) {
+                        char cd_cmd[5];
+                        strcpy(cd_cmd, words[1].c_str());
+                        fs_cd(cd_cmd);
+                    } else {
+                        cerr << "Error: no file system is mounted" << endl;
+                    }
+                }
+                break;
             default:
                 cerr << "Command Error: " << input_file_name << ", "<<line_num << endl;
                 break;
@@ -441,7 +454,6 @@ void fs_mount(const char *new_disk_name) {
                     return;
                 }
             }
-
         }
     }
 
@@ -796,6 +808,7 @@ void fs_ls(void) {
         string inode_name(name_array);
         int offset;
         if (inode_name.size() == 6) {
+            inode_name.erase(5, 1);
             offset = 5;
         } else {
             offset = 10 - inode_name.size();
@@ -1185,9 +1198,66 @@ void fs_defrag(void) {
 		disk.write((char*)&super_block.inode[i].dir_parent, 1);
 	}
     disk.close();
-
 }
+
+bool check_directory(int i, int current_dir) {
+    int dir_parent_val = convertByteToDecimal(super_block.inode[i].dir_parent, BYTE_SIZE);
+    if (dir_parent_val > 127) {
+        return true;
+    }
+    return false;
+}
+
+int get_parent_directory(int inode_index) {
+    int dir_parent_val =  convertByteToDecimal(super_block.inode[inode_index].dir_parent, BYTE_SIZE - 1);
+    return dir_parent_val;
+}
+
 void fs_cd(char name[5]) {
-    // Same as the terminal to change the current working directory
-    // If the name doesnt exist just print out the error message
+    char new_name[6] = {0,0,0,0,0,0};
+    transfer_char_to_char_array(new_name, name);
+    string n(new_name);
+    if (n.compare(".") == 0) {
+        if (cwd == 127) {
+            cwd = 127;
+            cout << "In dir: root" << endl;
+        } else {
+            char name_array[6] = {0,0,0,0,0,0};
+            cwd = get_parent_directory(cwd);
+            get_name_from_inode(cwd, name_array);
+            cout << "In dir:" << name_array << endl;  
+        } 
+        return;
+    }
+    if (n.compare("..") == 0) {
+        // (cwd == 127)? cwd = 127: cwd = get_parent_directory(get_parent_directory(cwd));
+        if (cwd == 127) {
+            cwd = 127;
+            cout << "In dir: root" << endl;
+        } else {
+            char name_array[6] = {0,0,0,0,0,0};
+            cwd = get_parent_directory(get_parent_directory(cwd));
+            get_name_from_inode(cwd, name_array);
+            cout << "In dir:" << name_array << endl; 
+        }
+        return;
+    }
+
+    // Asumming the entered text is not . or  .. 
+    if (!check_exists(n, cwd)) {
+        cerr << "Error: Directory " << n << " does not exist" << endl;
+    }
+    int idx = get_index_from_map_by_name(n, cwd);
+    if (!check_directory(idx, cwd)) {
+        cerr << "Error: Directory " << n << " does not exist" << endl;
+    }
+    cwd = idx;
+    if (cwd != 127) {
+        char name_array[6] = {0,0,0,0,0,0};
+        get_name_from_inode(cwd, name_array);
+        cout << "In dir:" << name_array << endl;
+            
+    } else {
+        cout << "In dir: root" << endl;
+    }
 }
