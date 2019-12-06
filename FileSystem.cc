@@ -1139,28 +1139,45 @@ void fs_defrag(void) {
         } else {
             position = position + blocks_covered;
         }
+        
         // set bits to 0 after the last position
         int start_index = position / 8; // Which index to start on in the FBL
         int mask_offset = position - (start_index * 8);
         int count = 0;
         // Zero out all the blocks that we were at before
         for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
-            uint8_t mask = 1<<7; 
+            uint8_t mask = 0x7F; 
             if ((int)i == start_index) {
-                mask >>=mask_offset;
+                for (int i = 0; i <mask_offset; i++) {
+                    mask = (mask >> 1)|128;
+                }
             }
             while (mask) {
                 count++;
+                super_block.free_block_list[i] &= mask;
+                mask = (mask >>1) | 128;
+                
                 if (count == blocks_covered - 1) {
                     break;
                 }
-                super_block.free_block_list[i] ^= mask;
-                mask>>=1;
             }
             if (count == blocks_covered - 1) {
                 break;
             }
         }
+    }
+
+    for (int i = 0; i < FREE_SPACE_LIST; i++) {
+        uint8_t mask = 1<< 7;
+        while(mask)  {
+            if (super_block.free_block_list[i] & mask) {
+                cout << '1';
+            } else {
+                cout << "0";
+            }
+            mask >>=1;
+        }
+        cout << endl;
     }
     // ====== ZERO OUT ALL DATA BLOCKS AFTER POSITION =========== //
     char deletion_buf[1024];
@@ -1181,7 +1198,6 @@ void fs_defrag(void) {
 		disk.write((char*)&super_block.inode[i].dir_parent, 1);
 	}
     disk.close();
-
 
 }
 void fs_cd(char name[5]) {
