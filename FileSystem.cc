@@ -1144,8 +1144,6 @@ void fs_defrag(void) {
                 disk.seekp(1024 * position, ios_base::beg);
                 disk.write(data, 1024);
 
-
-
                 // ==== Setting FBL value to 1 ========//
                 uint8_t mask = 1<<7;
                 int start_index = position / 8; // Which index to start on in the FBL
