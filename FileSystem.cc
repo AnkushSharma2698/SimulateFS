@@ -163,7 +163,7 @@ int main(int argc, char *argv[]) {
     // Holds the user
     string command;
     int line_num = 0;
-    string input_file_name = "inputFile";
+    string input_file_name = argv[1];
     fstream input_file(input_file_name);
     while (getline(input_file, command)) {
         ++line_num;
@@ -1106,63 +1106,72 @@ void fs_defrag(void) {
     }
     // Sorted the inodes based on start block
     sort(sorted_inodes.begin(),sorted_inodes.end(), ascending_sb_order());
-    cout << "Sorted inode size:" << sorted_inodes.size() << endl;
-    // Iterate the sorted inodes until they are empty
+    // Start at position  == 1
     unsigned int position = 1;
     disk.open(m_disk_name);
-    for (unsigned int i = 0; i < sorted_inodes.size(); i++) {
-        int blocks_covered = convertByteToDecimal(super_block.inode[sorted_inodes[i].index].used_size, BYTE_SIZE - 1);
-        if ( (unsigned int)sorted_inodes[i].start_block != position) {
-            // Have to move this back and copy over the values
+    for (int unsigned i = 0; i < sorted_inodes.size(); i++) {
+        int inode_index = sorted_inodes[i].index;
+        int blocks_covered = convertByteToDecimal(super_block.inode[inode_index].used_size, BYTE_SIZE - 1);
+        unsigned int start_blk = sorted_inodes[i].start_block;
+        if (start_blk != position) {
             unsigned int new_start_block = position;
             char data[1024];
             for (int j = 0; j < blocks_covered; j++) {
-                // Write to the new blocks
-                disk.seekg(1024 * sorted_inodes[i].start_block + i, ios_base::beg);
+                // Loop through each block
+                // =====Copying blocks ======//
+                disk.seekg(1024 * start_blk + (1024 * j), ios_base::beg);
                 disk.read(data, 1024);
                 disk.seekp(1024 * position, ios_base::beg);
                 disk.write(data, 1024);
-                // Set the free block list position
-                int mask = 1<<7;
+
+
+
+                // ==== Setting FBL value to 1 ========//
+                uint8_t mask = 1<<7;
                 int start_index = position / 8; // Which index to start on in the FBL
                 int mask_offset = position - (start_index * 8);
                 mask >>=mask_offset;
-                super_block.free_block_list[sorted_inodes[i].index] |= mask; // Set the bit we are looking at to 1
+                super_block.free_block_list[start_index] |= mask; // Set the bit we are looking at to 1
                 ++position;
             }
-            // Update the inode start position
-            super_block.inode[sorted_inodes[i].index].start_block = new_start_block;
-            // Overwrite the inodes and super_block in memeory
-            // Copy the blocks from block start_block to end of this block to position
-            // Set the position to the end of the inode
-        } else  {
+            // ===== Updating inode start position ====== //
+            super_block.inode[inode_index].start_block = new_start_block;
+        } else {
             position = position + blocks_covered;
         }
+        // set bits to 0 after the last position
+        int start_index = position / 8; // Which index to start on in the FBL
+        int mask_offset = position - (start_index * 8);
+        int count = 0;
+        // Zero out all the blocks that we were at before
+        for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
+            uint8_t mask = 1<<7; 
+            if ((int)i == start_index) {
+                mask >>=mask_offset;
+            }
+            while (mask) {
+                count++;
+                if (count == blocks_covered - 1) {
+                    break;
+                }
+                super_block.free_block_list[i] ^= mask;
+                mask>>=1;
+            }
+            if (count == blocks_covered - 1) {
+                break;
+            }
+        }
     }
-
-    // Delete all the blocks from position to end
+    // ====== ZERO OUT ALL DATA BLOCKS AFTER POSITION =========== //
     char deletion_buf[1024];
     memset(deletion_buf, 0 , 1024);
     disk.seekp(1024 * position, ios_base::beg); // Get to the current position
     for (int i = position; i < 128; i++) {
         disk.write(deletion_buf, 1024);
     }
-    // set bits to 0 after the last position
-    int start_index = position / 8; // Which index to start on in the FBL
-    cout << "the start position: " << position << endl;
-    cout << "the start index: "  << start_index <<  endl;
-    int mask_offset = position - (start_index * 8);
-    for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
-        uint8_t mask = 1<<7; 
-        if ((int)i == start_index) {
-            mask >>=mask_offset;
-        }
-        while (mask) {
-            super_block.free_block_list[i] ^= mask;
-            mask>>=1;
-        }
-    }
-    // Overwrite the FBL and all of the inodes in memory
+
+    // ===== OverWrite FBL and INODES ======= //
+    disk.seekg(0, ios_base::beg);
     disk.write(super_block.free_block_list, FREE_SPACE_LIST);
     // Write the rest of the inodes into memory into the inode list
 	for (uint8_t i = 0; i < INODE_NUM; i++) {
@@ -1172,6 +1181,7 @@ void fs_defrag(void) {
 		disk.write((char*)&super_block.inode[i].dir_parent, 1);
 	}
     disk.close();
+
 
 }
 void fs_cd(char name[5]) {
