@@ -59,6 +59,37 @@ bool check_exists(string name, int current_dir) {
     return exist;
 }
 
+void get_name_from_inode_for_mount(int index, char * name_array, Super_block &temp_block) {
+    for (int i = 0; i < 6; i++) {
+        if (temp_block.inode[index].name[i] != '\0') {
+            name_array[i] = temp_block.inode[index].name[i];
+        } else {
+            break;
+        }
+    }
+}
+
+
+bool check_exists_for_mount(string name, int current_dir,map<int, set<int>> dir_map, Super_block temp_block) {
+    bool exist = false;
+    for (auto it = dir_map[current_dir].begin(); it != dir_map[current_dir].end(); ++it) {
+        char name_array[6] = {0,0,0,0,0,0};
+        get_name_from_inode_for_mount(*it, name_array, temp_block);
+        string inode_name(name_array);
+        if (inode_name.size() == 6) {
+            inode_name.erase(5, 1);
+        }
+        if (name.size() == 6) {
+            name.erase(5, 1);
+        }
+        if (inode_name.compare(name) == 0) {
+            exist = true;
+            break;
+        }
+    }
+    return exist;
+}
+
 int get_index_from_map_by_name(string name, int current_dir) {
     int idx;
     for (auto it = directory_map[current_dir].begin(); it != directory_map[current_dir].end(); ++it) {
@@ -85,6 +116,7 @@ void get_name_from_inode(int index, char * name_array) {
         }
     }
 }
+
 
 void transfer_char_to_char_array(char * output_array, char * input_array) {
     for (int i = 0; i < 6; i++) {
@@ -307,6 +339,8 @@ int main(int argc, char *argv[]) {
 // Implementations of the filesystem
 void fs_mount(const char *new_disk_name) {
 
+    Super_block temp_block;
+
     // Open the disk
     disk.open(new_disk_name);
     
@@ -316,22 +350,22 @@ void fs_mount(const char *new_disk_name) {
     }
 
     // Read the FB list into memory
-	disk.read(super_block.free_block_list, FREE_SPACE_LIST);
+	disk.read(temp_block.free_block_list, FREE_SPACE_LIST);
     // Read the rest of the inodes into memory into the inode list
 	for (uint8_t i = 0; i < INODE_NUM; i++) {
-		disk.read(super_block.inode[i].name, 5); // Read the name into mem
-		disk.read(&super_block.inode[i].used_size, 1);
-		disk.read(&super_block.inode[i].start_block, 1);
-		disk.read(&super_block.inode[i].dir_parent, 1);
+		disk.read(temp_block.inode[i].name, 5); // Read the name into mem
+		disk.read(&temp_block.inode[i].used_size, 1);
+		disk.read(&temp_block.inode[i].start_block, 1);
+		disk.read(&temp_block.inode[i].dir_parent, 1);
 	}
 	
 	//===========Consistency Check 1============//
     map<int, int> used_block_map;
     init_map(used_block_map, NUM_BLOCKS);
     //Consistency check 1
-	check_map_vs_inodes(used_block_map);
+	check_map_vs_inodes(used_block_map, temp_block);
     int count = 0;
-	for (unsigned int i=0; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++) {
+	for (unsigned int i=0; i < sizeof(temp_block.free_block_list)/sizeof(temp_block.free_block_list[0]); i++) {
 		uint8_t mask = 1 << 7;
 		while(mask) {
             if (i == 0 && (mask == 128))  { // Checking if we are looking at the super block
@@ -339,7 +373,7 @@ void fs_mount(const char *new_disk_name) {
 			    mask >>= 1;
                 continue;
             }
-			if (super_block.free_block_list[i] & mask) {
+			if (temp_block.free_block_list[i] & mask) {
 				// Block is apparently being used
 				if (!used_block_map[count]) {
                     error_repr(1, new_disk_name);
@@ -364,14 +398,14 @@ void fs_mount(const char *new_disk_name) {
     // ===================Consistency check 2 ====================//
     // 2. name of every file/directory must be unique within a directory
     // Clear the map 
-    directory_map.clear();
-    directory_map[127]; // Root directory index
+    map<int, set<int>> dir_map;
+    dir_map[127];
 
     // Iterate each inode to find out which one is directory
     for (int i = 0; i < INODE_NUM; i++) {
-        if (!(super_block.inode[i].dir_parent < 128)) {
+        if (!(temp_block.inode[i].dir_parent < 128)) {
             // The current index is a directory
-            directory_map[i];
+            dir_map[i];
         }
     }
 
@@ -379,9 +413,9 @@ void fs_mount(const char *new_disk_name) {
     uint8_t idx_mask = 127;
     for (int i = 0; i< INODE_NUM; i++) {
         // Check if the inode we are looking at is in use
-        if (super_block.inode[i].used_size & (1 << 7)) {
+        if (temp_block.inode[i].used_size & (1 << 7)) {
             int idx;
-            int dir_parent_val = convertByteToDecimal(super_block.inode[i].dir_parent, BYTE_SIZE);
+            int dir_parent_val = convertByteToDecimal(temp_block.inode[i].dir_parent, BYTE_SIZE);
 
             if (dir_parent_val > 127) {
                 idx = dir_parent_val - 128;
@@ -389,13 +423,13 @@ void fs_mount(const char *new_disk_name) {
                 idx = dir_parent_val;
             }
             char name_array[6] = {0,0,0,0,0,0};
-            get_name_from_inode(i, name_array);
+            get_name_from_inode_for_mount(i, name_array, temp_block);
             string n(name_array);
-            if (check_exists(n, idx)) {
+            if (check_exists_for_mount(n, idx,dir_map, temp_block)) {
                 error_repr(2, new_disk_name);
                 return;
             } else {
-                directory_map[idx].insert(i);
+                dir_map[idx].insert(i);
             }
         }
     }
@@ -403,11 +437,11 @@ void fs_mount(const char *new_disk_name) {
     //============Consistency Check 3 ===============//
     // 3. Free inode must have all bits = 0, else the "name" at least must have one non-zero bit
     for (int i = 0; i < INODE_NUM; i++) {
-        if (super_block.inode[i].used_size & 1<< 7) {
+        if (temp_block.inode[i].used_size & 1<< 7) {
             // Check if the name has at least one bit in it that is not 0
             bool has_non_zero = false;
             for(int j=0; j < 5; j++) {
-                if (super_block.inode[i].name[j] != 0) {
+                if (temp_block.inode[i].name[j] != 0) {
 
                     has_non_zero = true;
                     break;
@@ -421,7 +455,7 @@ void fs_mount(const char *new_disk_name) {
             // All every bit in this inode must be 0
             bool has_non_zero = false;
             for(int j=0; j < 5; j++) {
-                if (super_block.inode[i].name[j] != 0) {
+                if (temp_block.inode[i].name[j] != 0) {
                     has_non_zero = true;
                     break;
                 }
@@ -430,7 +464,7 @@ void fs_mount(const char *new_disk_name) {
                 error_repr(3, new_disk_name);
                 return;
             }
-            if (!super_block.inode[i].used_size == 0 || !super_block.inode[i].start_block == 0 || !super_block.inode[i].dir_parent == 0) {
+            if (!temp_block.inode[i].used_size == 0 || !temp_block.inode[i].start_block == 0 || !temp_block.inode[i].dir_parent == 0) {
                 error_repr(3, new_disk_name);
                 return;
             }
@@ -441,11 +475,11 @@ void fs_mount(const char *new_disk_name) {
     // =================Consistency check 4 ===============//
     // 4. The startblock of every inode that is a file must be between 1-127 inclusive
     for (int i = 0; i < INODE_NUM; i++) {
-        if (super_block.inode[i].used_size & 1<<7) { // Node is in use
+        if (temp_block.inode[i].used_size & 1<<7) { // Node is in use
             // Check if the inode is a file
-            int dir_parent_val =  convertByteToDecimal(super_block.inode[i].dir_parent, BYTE_SIZE);
+            int dir_parent_val =  convertByteToDecimal(temp_block.inode[i].dir_parent, BYTE_SIZE);
             if (dir_parent_val < 128) {
-                int start_block_val =  convertByteToDecimal(super_block.inode[i].start_block, BYTE_SIZE);
+                int start_block_val =  convertByteToDecimal(temp_block.inode[i].start_block, BYTE_SIZE);
                 if (!(start_block_val > 0 && start_block_val < 128)) {
                     error_repr(4, new_disk_name);
                     return;
@@ -457,10 +491,10 @@ void fs_mount(const char *new_disk_name) {
     // ==============Consistency Check 5==================//
     // 5. size and start block of inode that is directory must be 0
     for (int i = 0; i < INODE_NUM; i++) {
-        if (super_block.inode[i].used_size & 1<<7) { // Node is in use
-            int dir_parent_val =  convertByteToDecimal(super_block.inode[i].dir_parent, BYTE_SIZE);
+        if (temp_block.inode[i].used_size & 1<<7) { // Node is in use
+            int dir_parent_val =  convertByteToDecimal(temp_block.inode[i].dir_parent, BYTE_SIZE);
             if (dir_parent_val > 127) { // We are looking at a directory
-                if (!(super_block.inode[i].start_block == 0 && (super_block.inode[i].used_size & 127) == 0 )) {
+                if (!(temp_block.inode[i].start_block == 0 && (temp_block.inode[i].used_size & 127) == 0 )) {
                     error_repr(5, new_disk_name);
                     return;
                 }
@@ -471,20 +505,20 @@ void fs_mount(const char *new_disk_name) {
     // ==============Consistency check 6=================//
     // 6. Parent can never be 126. If parent inode between 1-125 inclusive, parent inode must be in use and marked as a directory
     for (int i = 0; i < INODE_NUM; i++) {
-        if (super_block.inode[i].used_size & 1<<7) {
-            int idx_parent = super_block.inode[i].dir_parent & idx_mask;
+        if (temp_block.inode[i].used_size & 1<<7) {
+            int idx_parent = temp_block.inode[i].dir_parent & idx_mask;
             if (idx_parent == 126) {
                 error_repr(6, new_disk_name);
                 return;
             }
             if (idx_parent >=0 && idx_parent <=125) {
                 // Check if in use
-                if (!(super_block.inode[idx_parent].used_size & 1<<7)) {
+                if (!(temp_block.inode[idx_parent].used_size & 1<<7)) {
                     error_repr(6, new_disk_name);
                     return;   
                 }
                 // Check if the inode is marked as a dir
-                int dir_parent_val =  convertByteToDecimal(super_block.inode[idx_parent].dir_parent, BYTE_SIZE);
+                int dir_parent_val =  convertByteToDecimal(temp_block.inode[idx_parent].dir_parent, BYTE_SIZE);
                 if (dir_parent_val < 128) {
                     // This is pointing to a file so fail
                     error_repr(6, new_disk_name);
@@ -494,6 +528,11 @@ void fs_mount(const char *new_disk_name) {
         }
     }
 
+    // Copy the temp block into the real super block
+    directory_map = dir_map;
+    // Set the super block
+    memcpy(super_block.free_block_list, temp_block.free_block_list, 16);
+    memcpy(super_block.inode, temp_block.inode, 126*8);
     // mount the disk and set the cwd
     m_disk_name = new_disk_name;
     cwd = 127;
@@ -506,17 +545,17 @@ void error_repr(int error_code, const char * new_disk_name) {
 }
 
 // CONSISTENCY CHECK 1 HELPER
-void check_map_vs_inodes(map<int, int> &block_map) {
+void check_map_vs_inodes(map<int, int> &block_map, Super_block &temp_block) {
     uint8_t base_mask = 1 << 7;
     for (int i = 0; i < INODE_NUM; i++) { // Iterate all of the inodes
         // Check if the inode is in use
-        if (super_block.inode[i].used_size & base_mask) {
+        if (temp_block.inode[i].used_size & base_mask) {
             // Determine if it is a file or a directory
-            if (super_block.inode[i].dir_parent < 128) {
+            if (temp_block.inode[i].dir_parent < 128) {
                 // Current inode is a file
                 // Determine the start block for this
-                int start_block_idx = convertByteToDecimal(super_block.inode[i].start_block, BYTE_SIZE);
-                int blocks_covered = convertByteToDecimal(super_block.inode[i].used_size, BYTE_SIZE - 1);
+                int start_block_idx = convertByteToDecimal(temp_block.inode[i].start_block, BYTE_SIZE);
+                int blocks_covered = convertByteToDecimal(temp_block.inode[i].used_size, BYTE_SIZE - 1);
                 for (int j = start_block_idx; j < start_block_idx  + blocks_covered; j++) {
                     // If the block is listed as in use, but the number of inodes using it is greater than 1
                     int val = block_map[j] + 1;

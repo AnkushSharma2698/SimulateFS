@@ -53,7 +53,7 @@ void fs_defrag(void);
 void fs_cd(char name[5]);
 
 // Helper methods
-void check_map_vs_inodes(map<int, int> &block_map);
+void check_map_vs_inodes(map<int, int> &block_map, Super_block &temp_block);
 void error_repr(int error_code, const char * new_disk_name);
 void recursive_delete(int idx, int cwd);
 void get_name_from_inode(int index, char * name_array);
