@@ -1116,6 +1116,18 @@ void fs_resize(char name[5], int new_size) {
     }
 }
 
+void zero_out_fbl_bits(int start_position, int size) {
+    for (int i = 0; i < size; i++) {
+        size_t block = start_position + i;
+
+        int byte_pos = block/8;
+        int bit_pos = block%8;
+        uint8_t mask = 128;
+        mask >>=bit_pos;
+        super_block.free_block_list[byte_pos] = super_block.free_block_list[byte_pos] & ~mask;
+    }
+}
+
 void fs_defrag(void) {
     vector<Inode_block> sorted_inodes;
     for (int i = 0; i < INODE_NUM; i++) {
@@ -1151,37 +1163,19 @@ void fs_defrag(void) {
                 mask >>=mask_offset;
                 super_block.free_block_list[start_index] |= mask; // Set the bit we are looking at to 1
                 ++position;
+                
             }
+
             // ===== Updating inode start position ====== //
             super_block.inode[inode_index].start_block = new_start_block;
+            if (start_blk < new_start_block + blocks_covered) {
+                int offset = start_blk - new_start_block;
+                zero_out_fbl_bits(new_start_block + blocks_covered, offset);
+            } else {
+                zero_out_fbl_bits(start_blk, blocks_covered);
+            }
         } else {
             position = position + blocks_covered;
-        }
-        
-        // set bits to 0 after the last position
-        int start_index = position / 8; // Which index to start on in the FBL
-        int mask_offset = position - (start_index * 8);
-        int count = 0;
-        // Zero out all the blocks that we were at before
-        for (unsigned int i=start_index; i < sizeof(super_block.free_block_list)/sizeof(super_block.free_block_list[0]); i++){
-            uint8_t mask = 0x7F; 
-            if ((int)i == start_index) {
-                for (int i = 0; i <mask_offset; i++) {
-                    mask = (mask >> 1)|128;
-                }
-            }
-            while (mask) {
-                count++;
-                super_block.free_block_list[i] &= mask;
-                mask = (mask >>1) | 128;
-                
-                if (count == blocks_covered - 1) {
-                    break;
-                }
-            }
-            if (count == blocks_covered - 1) {
-                break;
-            }
         }
     }
     // ====== ZERO OUT ALL DATA BLOCKS AFTER POSITION =========== //
@@ -1228,7 +1222,6 @@ void fs_cd(char name[5]) {
     transfer_char_to_char_array(new_name, name);
     string n(new_name);
     if (n.compare(".") == 0) {
-        cout << "stay in cwd: " << cwd << endl;
         return;
     }
     if (n.compare("..") == 0) {
