@@ -23,6 +23,30 @@
         - If all checks passed, set disk name and current working directory.
     - fs_create():
         -First checked if given name is correct size, then check if the size is correct, then check if the given name already exists
+        - Check if a free inode is available
         - If checks satisfy, if directory can directly create, otherwise must find if there are N available block and N+1 blocks are asked for, create should fail
-        
+    - fs_delete():
+        - Check if the given name exists, then recursively deleted
+        - Then update the disk and the blocks of the deleted file
+    - recursive_delete(): This method is as explained, if a directory is encountered, it recurses and delete the inner files and directories otherwise simply deleted the file.
+    - fs_read():
+        - If file exists, and block is between 0 and size-1, read 1kb from the specified block.
+    - fs_write():
+        - If file exists, and block is between 0 and size-1, write 1kb from the specified block.
+    - fs_buff():
+        - Put 1024 bytes from passed in buffer to the global buffer
+    - fs_ls():
+        - Lists the contents of the current working directory
+    - fs_resize():
+        - Handles resizing for a file to become smaller, larger in place, or expand into a new starting position.
+    - fs_defrag():
+        - Put inodes in a vector sorted by start block
+        - Iterated these inodes and determined their offset against the earliest free block positions and shifted the blocks accordingly and updated the FBL and Inodes accordingly
+    - fs_cd():
+        - Check whether going up or down in directory level.
+        - Used helper function to get resultant working directory.
+### Testing
+    - Testing was performed by created randomized input files and viewing actual output vs expected output
+    - Used the sample test cases provided on eclass
+
 
