@@ -587,7 +587,7 @@ void fs_create(char name[5], int size) {
     }
     // Make sure the name is not a reserved value
     if (n.compare(".") == 0 || n.compare("..") == 0) {
-        cerr << "Error: '..' and '.' are reserved" << endl;
+        cerr << "Error: File or directory " << name << " already exists" << endl;
         return;
     }
     
