@@ -11,4 +11,4 @@ clean:
 	rm ./fs
 
 compress:
-	tar -czf filesystem.tar.gz FileSystem.cc  FileSystem.h Makefile
+	tar -czf filesystem.tar.gz FileSystem.cc FileSystem.h Makefile readme.md
